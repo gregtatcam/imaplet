@@ -19,9 +19,10 @@ let init_connection w =
 (**
  * accepted client's connection
 **)
-let rec client_connect r w =
+let client_connect r w =
+  let open Contexts in
   let state = init_connection w in
   let contexts = 
-    let open Contexts in
-    ({req_ctx = (Contextlist.create()); state_ctx = state; mbx_ctx = Amailbox.empty()}) in
-  State.handle_client_requests contexts r w
+    ({req_ctx = (Contextlist.create()); state_ctx = state; mbx_ctx = Amailbox.empty() }) in
+  let ipc_ctx = { logout_ctx = Condition.create(); net_r = r; net_w = w } in
+  State.handle_client_requests contexts ipc_ctx

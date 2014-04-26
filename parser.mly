@@ -115,6 +115,7 @@
 
 %{
 open States
+open Mflags
 let debug format = Printf.printf format (**(fun format a -> ())**)
 %}
 

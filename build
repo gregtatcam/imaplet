@@ -1,1 +1,1 @@
-ocamlbuild -cflag -annot -tag debug -verbose 6 -use-menhir -tag thread -use-ocamlfind -quiet -pkg extlib -pkg str -pkg async -pkg email_message -pkg async_unix imaplet.native
+ocamlbuild -Is storage -cflag -annot -tag debug -verbose 6 -use-menhir -tag thread -use-ocamlfind -quiet -pkg extlib -pkg str -pkg async -pkg email_message -pkg async_unix -pkg async_kernel imaplet.native

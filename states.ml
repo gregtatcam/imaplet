@@ -1,4 +1,5 @@
 open Core.Std
+open Mflags
 
 type literal = Literal of int | LiteralPlus of int
 
@@ -126,19 +127,9 @@ type fetch =
   | FetchMacro of fetchMacro
   | FetchAtt of fetchAtt list
   
-type flags =  
-  | Flags_Answered
-  | Flags_Deleted
-  | Flags_Draft
-  | Flags_Flagged
-  | Flags_Recent
-  | Flags_Seen
-  | Flags_Keyword of string
-  | Flags_Extention of string
-
 type searchFlags =
-  | Common of flags
-  | NotCommon of flags
+  | Common of mailboxFlags
+  | NotCommon of mailboxFlags
   | Old
   | New
   
@@ -172,7 +163,7 @@ type authenticatedCmd =
   | Cmd_List of string * string (** reference name * mailbox name with possible wildcards **)
   | Cmd_Lsub of string * string (** reference name * mailbox name with possible wildcards **)
   | Cmd_Status of string * (statusOpt list) (** mailbox name * status data itme names **)
-  | Cmd_Append of string * flags list option * Time.t option * literal (** mailbox name * optional flag parenthesized list * optional date/time string; message literal **)
+  | Cmd_Append of string * mailboxFlags list option * Time.t option * literal (** mailbox name * optional flag parenthesized list * optional date/time string; message literal **)
   | Cmd_Idle
   | Cmd_Done
 
@@ -182,7 +173,7 @@ type selectedCmd =
   | Cmd_Expunge (** permanently remove all messages with \Deleted flag **)
   | Cmd_Search of string option * (searchKey) searchKeys * bool (** optional charset * searching criteria; charset and criteria need more grammar definition TBD **)
   | Cmd_Fetch of sequence *  fetch * bool (** more work is needed TBD **)
-  | Cmd_Store of sequence * storeFlags * flags list * bool 
+  | Cmd_Store of sequence * storeFlags * mailboxFlags list * bool 
   | Cmd_Copy of sequence * string * bool (** sequence * mailbox name **)
 
 type fromClient = 
@@ -201,28 +192,6 @@ type response =
  | Resp_Cont of string 
  | Resp_Untagged of string
  | Resp_Any of string
-
-(** get the mailbox flags TBD **)
-let answered = 0x01
-let flagged = 0x02
-let deleted = 0x04
-let seen = 0x08
-let draft = 0x10
-let notJunk = 0x20
-let extention = 0x30
-let keyword = 0x40
-let recent = 0x50
-
-let fl_to_i fl =
-  match fl with
-  | Flags_Answered -> answered
-  | Flags_Flagged -> flagged
-  | Flags_Deleted -> deleted
-  | Flags_Seen -> seen
-  | Flags_Recent -> recent
-  | Flags_Draft -> draft
-  | Flags_Extention e -> extention (** TBD **)
-  | Flags_Keyword k -> keyword (** TBD **)
 
 let fl_to_str fl =
   match fl with
@@ -273,8 +242,3 @@ let pr_flag fl =
 let pr_flags = function
   | None -> ()
   | Some l -> List.iter l ~f:(fun i -> pr_flag i); printf "\n%!"
-
-let get_flags (fl:flags list) =
-  List.fold fl ~init:0 ~f:(fun acc i -> acc land fl_to_i i)
-
-let all_flags = answered land flagged land deleted land seen land notJunk land extention land keyword

@@ -2,6 +2,8 @@ open Core.Std
 open Email_message
 open States
 open Regex
+open Mflags
+open Storage
 
 exception InvalidSequence
 
@@ -19,6 +21,10 @@ type bodystr_fields = {
   bsize: string;
   blines: string;
   bdisp: string}
+
+let flags_to_string flags =
+  List.fold flags ~init:"" ~f:(fun acc fl -> if acc = "" then fl_to_str fl else
+    acc ^ " " ^ (fl_to_str fl))
 
 let media_type (email:Email.t) : Media_type.t =
   try
@@ -39,10 +45,6 @@ let is_message_rfc822 (email:Email.t) : bool =
   let t = (Media_type.mime_type media) in
   let st = (Media_type.mime_subtype media) in
   t = "message" && st = "rfc822"
-
-let find_flag flags flag : (bool) =
-  List.find flags (fun fl -> printf "find_flags %s %s " (fl_to_str flag)
-  (fl_to_str fl); if (fl_to_str fl) = (fl_to_str flag) then (printf "found\n%!"; true) else (printf "not found\n%!"; false)) <> None
 
 (** get encapsulated message or None **)
 let get_message_email (email:Email.t) (stream:Octet_stream.t) : Email.t option = 
@@ -107,7 +109,7 @@ let fold_email_headers ?(incl=String.Map.empty) ?(excl=String.Map.empty)
   )
 
 (** check if internal or deleted message should only use index for this TBD **)
-let should_include (email:Email.t) (record:Index.mbox_msg_metadata) : bool =
+let should_include (email:Email.t) (record:mailbox_message_metadata) : bool =
   let internal =
   List.fold (Header.to_list (Email.header email)) ~init:0 ~f:(fun acc (n,v) ->
     if (match_regex ~case:false n "from") && 
@@ -120,7 +122,7 @@ let should_include (email:Email.t) (record:Index.mbox_msg_metadata) : bool =
       acc
   ) in
   if internal = 2 || 
-      (List.find record.flags ~f:(fun i -> if i = "\\Deleted" then true else false)) <> None then
+      (List.find record.flags ~f:(fun i -> if i = Flags_Deleted then true else false)) <> None then
     false
   else
     true
@@ -241,15 +243,8 @@ let rec get_address (headers:('a,'b,'comp)Map.t) (key:string) : string =
     )
 
 (** fetch the flags **)
-let exec_fetch_flags (flags:string list) : (string) =
-  let flags = List.fold flags 
-  ~init:""
-  ~f:(fun acc flag -> 
-    if acc = "" then
-      flag
-    else
-      acc ^ space ^ flag
-  ) in
+let exec_fetch_flags (flags:mailboxFlags list) : (string) =
+  let flags = flags_to_string flags in
   "FLAGS" ^ space ^ (list_of flags) 
 
 (** fetch internal date **)
@@ -345,13 +340,15 @@ let exec_seq (seqset:sequence) (msg_seq:int) : (bool) =
 (** match the flag
  * need the index data for this, the headers don't have any flags
  **)
-let exec_flag (index_flags:string list) (flag:searchFlags) : (bool) =
-  let cvt_flags = List.fold index_flags ~init:[] ~f:(fun acc i -> (States.str_to_fl i) :: acc) in
+let exec_flag (flags:mailboxFlags list) (flag:searchFlags) : (bool) =
+  let find_flag flags fl =
+    List.find flags ~f:(fun f -> f = fl) <> None
+  in
   match flag with
-    | Common flag -> find_flag cvt_flags flag
-    | NotCommon flag -> find_flag cvt_flags flag = false
-    | Old -> find_flag cvt_flags States.Flags_Recent
-    | New -> (find_flag cvt_flags States.Flags_Recent) && (find_flag cvt_flags States.Flags_Seen) = false
+    | Common flag -> find_flag flags flag
+    | NotCommon flag -> find_flag flags flag = false
+    | Old -> find_flag flags Flags_Recent
+    | New -> (find_flag flags Flags_Recent) && (find_flag flags Flags_Seen) = false
 
 (** match the date **)
 let exec_hdr_date (headers:('a,'b,'comp) Map.t) (date:Date.t) (op:int->int->bool) : (bool) = 
@@ -382,7 +379,7 @@ let exec_text (headers:('a,'b,'comp) Map.t) (content:string) (text:string) :
     true else false)) <> None
 
 (** execute one key **)
-let exec_one_search_key headers content key (record:Index.mbox_msg_metadata) seq =
+let exec_one_search_key headers content key (record:mailbox_message_metadata) seq =
   match key with
   | Search_All -> true 
   | Search_Answered -> exec_flag record.flags (Common Flags_Answered)
@@ -450,7 +447,7 @@ let rec exec_search_all headers content keys record seq =
 **)
 let exec_search (email:Email.t) (keys:(searchKey) searchKeys) (** encapsulate email in
 functor or another module to hide implementation TBD **)
-(record:Index.mbox_msg_metadata) (seq:int) : (bool) =
+(record:mailbox_message_metadata) (seq:int) : (bool) =
   printf "exec %d\n%!" record.uid;
   if should_include email record = false then
     false
@@ -483,7 +480,7 @@ let exec_fetch_envelope (headers:('a,'b,'comp)Map.t) : (string) =
   let env = exec_fetch_envelope_unf headers in
   "ENVELOPE (" ^ env ^ "))"
 
-let exec_fetch_uid (record:Index.mbox_msg_metadata) : string =
+let exec_fetch_uid (record:mailbox_message_metadata) : string =
   "UID " ^ (string_of_int record.uid)
 
 (** 4.3.2.1. **)
@@ -601,7 +598,7 @@ let exec_fetch_sectext (email:Email.t) (secPart:sectionPart) (secText:sectionTex
       | Mime -> exec_fetch_mime email secPart part
 
 let exec_fetch_body_section (email:Email.t)
-(record:Index.mbox_msg_metadata) (spec:sectionSpec) (part:bodyPart) : string =
+(record:mailbox_message_metadata) (spec:sectionSpec) (part:bodyPart) : string =
   match spec with
   | SectionMsgtext msgtext -> 
       (
@@ -808,7 +805,7 @@ let exec_fetch_body (email:Email.t) : string =
   "BODY " ^ str
 
 let exec_fetch_att (seq:int) (sequence:States.sequence) (email:Email.t) 
-(record:Index.mbox_msg_metadata) (att:fetchAtt list) : (string) = 
+(record:mailbox_message_metadata) (att:fetchAtt list) : (string) = 
   let headers = headers_to_map (Email.header email) in
   List.fold att
   ~init:""
@@ -836,7 +833,7 @@ let exec_fetch_att (seq:int) (sequence:States.sequence) (email:Email.t)
   )
 
 let exec_fetch_macro (seq:int) (sequence:States.sequence) (email:Email.t)
- (record:Index.mbox_msg_metadata) (macro:States.fetchMacro) : (string) =
+ (record:mailbox_message_metadata) (macro:States.fetchMacro) : (string) =
   match macro with
   | Fetch_All -> exec_fetch_att seq sequence email record
     [Fetch_Flags;Fetch_Internaldate;Fetch_Rfc822Size;Fetch_Envelope]
@@ -847,7 +844,7 @@ let exec_fetch_macro (seq:int) (sequence:States.sequence) (email:Email.t)
       
 
 let exec_fetch_all (seq:int) (sequence:States.sequence)
-(email:Email.t) (record:Index.mbox_msg_metadata) (fetchattr:States.fetch) (buid:bool) : string =
+(email:Email.t) (record:mailbox_message_metadata) (fetchattr:States.fetch) (buid:bool) : string =
   match fetchattr with
   | FetchMacro macro -> exec_fetch_macro seq sequence email record macro
   | FetchAtt att -> 
@@ -856,7 +853,7 @@ let exec_fetch_all (seq:int) (sequence:States.sequence)
 
 (** need to trim based on seq TBD **)
 let exec_fetch (seq:int) (sequence:States.sequence) (message:Mailbox.Message.t)
-(record:Index.mbox_msg_metadata) (attr:States.fetch) (buid:bool) : string option =
+(record:mailbox_message_metadata) (attr:States.fetch) (buid:bool) : string option =
   if should_include message.email record = false then
     None
   else if buid = false && exec_seq sequence seq || buid = true && (exec_seq sequence record.uid)  then
@@ -866,22 +863,21 @@ let exec_fetch (seq:int) (sequence:States.sequence) (message:Mailbox.Message.t)
   else
     None
 
-let join_flags (flags1:string list) (flags2:string list) : (string list) =
+let join_flags (flags1:mailboxFlags list) (flags2:mailboxFlags list) : (mailboxFlags list) =
   let l = List.join [flags1;flags2] in
-  List.dedup ~compare:String.compare l
+  List.dedup ~compare:(fun a b -> if a = b then 0 else 1) l
 
-let rem_flags (flags:string list) (rem:string list) : (string list) =
+let rem_flags (flags:mailboxFlags list) (rem:mailboxFlags list) : (mailboxFlags list) =
   List.filter flags ~f:(fun fl -> (List.find rem ~f:(fun fl1 -> fl1 = fl)) = None)
 
-let get_flags seq buid (record:Index.mbox_msg_metadata) =
-  let flags = String.concat ~sep:" " record.flags in
+let get_flags seq buid (record:mailbox_message_metadata) =
+  let flags = flags_to_string record.flags in
   let seq = string_of_int (if buid then record.uid else seq) in
     seq ^ space ^ "FETCH (FLAGS (" ^ flags ^ ")"
 
-let exec_store_flags (record:Index.mbox_msg_metadata) (seq:int) (storeattr:States.storeFlags)
- (flagsval:States.flags list) (buid:bool): 
-   [> `Ok of Index.mbox_msg_metadata*string|`Silent of Index.mbox_msg_metadata] =
- let flagsval = List.fold flagsval ~init:[] ~f:(fun acc fl -> (fl_to_str fl) :: acc) in
+let exec_store_flags (record:mailbox_message_metadata) (seq:int) (storeattr:States.storeFlags)
+ (flagsval:mailboxFlags list) (buid:bool): 
+   [> `Ok of mailbox_message_metadata*string|`Silent of mailbox_message_metadata] =
   match storeattr with
   | Store_Flags -> let record = {record with flags = flagsval} in `Ok (record, get_flags seq buid record)
   | Store_FlagsSilent -> `Silent ({record with flags = flagsval})
@@ -892,9 +888,9 @@ let exec_store_flags (record:Index.mbox_msg_metadata) (seq:int) (storeattr:State
     {record with flags = rem_flags record.flags flagsval} in `Ok (record, get_flags seq buid record)
   | Store_MinusFlagsSilent -> `Silent ({record with flags = rem_flags record.flags flagsval})
 
-let exec_store (record:Index.mbox_msg_metadata) (seq:int) (sequence:States.sequence)
-(storeattr:States.storeFlags) (flagsval:States.flags list) (buid:bool) :
-  [`Ok of Index.mbox_msg_metadata*string|`Silent of Index.mbox_msg_metadata|`None] =
+let exec_store (record:mailbox_message_metadata) (seq:int) (sequence:States.sequence)
+(storeattr:States.storeFlags) (flagsval:mailboxFlags list) (buid:bool) :
+  [`Ok of mailbox_message_metadata*string|`Silent of mailbox_message_metadata|`None] =
   if buid = false && exec_seq sequence seq || buid = true && (exec_seq sequence record.uid)  then 
     exec_store_flags record seq storeattr flagsval buid
   else 

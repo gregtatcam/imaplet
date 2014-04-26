@@ -1,5 +1,7 @@
 open Core.Std
 open Async.Std
+open Storage
+open Mflags
 
 type t
 
@@ -21,10 +23,10 @@ val listmbx : t -> string -> string -> ((string*string list) list) Deferred.t
 val lsubmbx : t -> string -> string -> ((string*string list) list) Deferred.t
 
 (** select the mailbox **)
-val select : t ->  string -> ([`NotExists|`NotSelectable|`Error of string|`Ok of t * Index.mbox_header] Deferred.t)
+val select : t ->  string -> ([`NotExists|`NotSelectable|`Error of string|`Ok of t * mailbox_metadata] Deferred.t)
 
 (** select the mailbox **)
-val examine : t ->  string -> ([`NotExists|`NotSelectable|`Error of string|`Ok of t * Index.mbox_header] Deferred.t)
+val examine : t ->  string -> ([`NotExists|`NotSelectable|`Error of string|`Ok of t * mailbox_metadata] Deferred.t)
 
 (** un-select the mailbox **)
 val close : t -> t
@@ -46,29 +48,27 @@ val unsubscribe : t -> string -> [`Error of string|`Ok] Deferred.t
 
 (** get mailbox status **)
 val get_status : t -> string -> States.statusOpt list -> 
-  ([`NotExists|`NotSelectable|`Error of string|`Ok of Index.mbox_header] Deferred.t)
+  ([`NotExists|`NotSelectable|`Error of string|`Ok of mailbox_metadata] Deferred.t)
 
 (** check if the mailbox is valid **)
 val valid_mailbox : t -> string -> ([`NotExists|`NotSelectable|`ValidMailbox] Deferred.t)
 
 (** append message to the mailbox **)
-val append : t -> string -> Reader.t -> Writer.t -> States.flags list option -> Time.t option ->
+val append : t -> string -> Reader.t -> Writer.t -> mailboxFlags list option -> Time.t option ->
   States.literal -> ([`NotExists|`NotSelectable|`Eof of
-  int|`Error of string|`Ok of Index.mbox_header] Deferred.t)
+  int|`Error of string|`Ok] Deferred.t)
 
 (** sarch messages for the matching criteria **)
 val search : t -> (States.searchKey) States.searchKeys -> bool ->
   [`NotExists|`NotSelectable|`Error of string|`Ok of int list] Deferred.t
 
 val fetch : t -> (string->unit) -> States.sequence -> States.fetch -> bool ->
-  [`NotExists|`NotSelectable|`Error of string|`Ok of unit] Deferred.t
+  [`NotExists|`NotSelectable|`Error of string|`Ok] Deferred.t
 
-val store : t -> (string->unit) -> States.sequence -> States.storeFlags -> States.flags
-list -> bool -> [`NotExists|`NotSelectable|`Error of string|`Ok of unit] Deferred.t
+val store : t -> (string->unit) -> States.sequence -> States.storeFlags -> mailboxFlags
+list -> bool -> [`NotExists|`NotSelectable|`Error of string|`Ok ] Deferred.t
 
 val copy : t -> string -> States.sequence -> bool -> 
-[`NotExists|`NotSelectable|`Error of string|`Ok of unit] Deferred.t 
-
-val get_index_with_init: ?with_mbox:bool -> t -> string -> (Index.mbox_header,string) Result.t Deferred.t
+[`NotExists|`NotSelectable|`Error of string|`Ok ] Deferred.t 
 
 val expunge : t -> (string->unit) -> [`Error of string|`Ok] Deferred.t 

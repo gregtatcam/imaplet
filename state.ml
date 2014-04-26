@@ -12,14 +12,38 @@ open Regex
 
 exception SystemError of string
 
-let make_exec_ctx req_ctx state_ctx mbx_ctx =
-  {req_ctx; state_ctx; mbx_ctx};;
-
 let make_resp_ctx resp_state_ctx resp_ctx resp_mbx_ctx =
   {resp_state_ctx; resp_ctx; resp_mbx_ctx};;
 
 let return_resp_ctx resp_state_ctx resp_ctx resp_mbx_ctx =
   return (make_resp_ctx resp_state_ctx resp_ctx resp_mbx_ctx);;
+
+let get_storage file mbox_root inbox_root =
+  let open Storage in
+  let open Primitives in
+  let loc = BasicLocation.create file in
+  build_strg_inst (module UnixMboxMailboxStorage) (loc, mbox_root, inbox_root,
+  Configuration.mbox_index_params()) ()
+
+(* check for inbox updates *)
+let rec inbox_monitor user logout_wait sec =
+  (Clock.with_timeout 
+    (Time.Span.create ~sec ()) 
+    logout_wait) >>= function 
+      | `Result () -> return ()
+      | `Timeout ->
+        let (module SI) = get_storage 
+          (Configuration.inbox user) (Configuration.mailboxes user) (Configuration.inbox_root()) in
+           SI.MailboxStorage.update_index SI.this >>= (function
+              | `NotExists -> SI.MailboxStorage.rebuild_index SI.this
+              | `Ok -> return ()
+            ) >>= fun () -> inbox_monitor user logout_wait (Configuration.inbox_refresh())
+
+let start_inbox_monitor user logout =
+  don't_wait_for (inbox_monitor user (Condition.wait logout) 0 ) 
+
+let stop_inbox_monitor logout =
+  Condition.broadcast logout ()
 
 (** parse the buffer, return ok (request) or error (msg) **)
 let get_request_context contexts buff =
@@ -59,8 +83,9 @@ let handle_capability writer =
   write_resp writer (Resp_Untagged (formated_capability(Configuration.capability())));
   return_resp_ctx None (Resp_Ok (None, "CAPABILITY completed")) None
 
-let handle_logout writer =
-  write_resp writer (Resp_Bye(None,""));
+let handle_logout ipc_ctx =
+  write_resp ipc_ctx.net_w (Resp_Bye(None,""));
+  stop_inbox_monitor ipc_ctx.logout_ctx;
   return_resp_ctx (Some State_Logout) (Resp_Ok (None, "LOGOUT completed")) None
 
 (** TBD should have a hook into the maintenance to recet inactivity **)
@@ -73,21 +98,24 @@ let handle_noop () =
 let handle_idle writer =
   return_resp_ctx None (Resp_Any ("+ idling")) None
 
-let handle_done writer =
+let handle_done ipc_ctx =
+  stop_inbox_monitor ipc_ctx.logout_ctx;
   return_resp_ctx None (Resp_Ok (None, "IDLE")) None
 
 (**
  * Not Authenticated state
 **)
-let handle_authenticate writer auth_type text =
-  Account.authenticate writer auth_type text >>= function
-  | Ok (m,u) -> return_resp_ctx (Some State_Authenticated) m (Some (Amailbox.create u))
-  | Error e -> return_resp_ctx None e None
+let handle_authenticate auth_type text ipc_ctx =
+  Account.authenticate ipc_ctx.net_w auth_type text >>= function
+    | Ok (m,u) -> start_inbox_monitor u ipc_ctx.logout_ctx; printf "started inbox monitor\n%!";
+      return_resp_ctx (Some State_Authenticated) m (Some (Amailbox.create u))
+    | Error e -> return_resp_ctx None e None
 
-let handle_login writer user password =
-  Account.login writer user password >>= function
-  | Ok (m,u) -> return_resp_ctx (Some State_Authenticated) m (Some (Amailbox.create u))
-  | Error e -> return_resp_ctx None e None
+let handle_login user password ipc_ctx =
+  Account.login ipc_ctx.net_w user password >>= function
+    | Ok (m,u) -> start_inbox_monitor u ipc_ctx.logout_ctx; printf "started inbox monitor\n%!";
+      return_resp_ctx (Some State_Authenticated) m (Some (Amailbox.create u))
+    | Error e -> return_resp_ctx None e None
 (**
  * Done Not Authenticated state
 **)
@@ -228,7 +256,7 @@ let handle_append reader writer mailbox flags date literal contexts =
       | `NotSelectable -> return_resp_ctx None (Resp_No(Some RespCode_Trycreate,"Noselect")) None
       | `Error e -> return_resp_ctx None (Resp_No(None,e)) None
       | `Eof i -> return_resp_ctx (Some State_Logout) (Resp_No(None, "Truncated Message")) None
-      | `Ok header -> return_resp_ctx None (Resp_Ok(None, "APPEND completed")) None
+      | `Ok -> return_resp_ctx None (Resp_Ok(None, "APPEND completed")) None
   )
 (**
  * Done Authenticated state
@@ -275,7 +303,7 @@ let handle_fetch writer sequence fetchattr buid context =
   | `NotExists -> return_resp_ctx None (Resp_No(None,"Mailbox doesn't exist")) None
   | `NotSelectable ->  return_resp_ctx None (Resp_No(None,"Mailbox is not selectable")) None
   | `Error e -> return_resp_ctx None (Resp_No(None,e)) None
-  | `Ok () -> return_resp_ctx None (Resp_Ok(None, "FETCH completed")) None
+  | `Ok -> return_resp_ctx None (Resp_Ok(None, "FETCH completed")) None
 
 let handle_store writer sequence flagsatt flagsval buid contexts =
   printf "handle_store %d %d\n" (List.length sequence) (List.length flagsval);
@@ -283,7 +311,7 @@ let handle_store writer sequence flagsatt flagsval buid contexts =
   | `NotExists -> return_resp_ctx None (Resp_No(None,"Mailbox doesn't exist")) None
   | `NotSelectable ->  return_resp_ctx None (Resp_No(None,"Mailbox is not selectable")) None
   | `Error e -> return_resp_ctx None (Resp_No(None,e)) None
-  | `Ok () -> return_resp_ctx None (Resp_Ok(None, "STORE completed")) None
+  | `Ok -> return_resp_ctx None (Resp_Ok(None, "STORE completed")) None
 
 let handle_copy writer sequence mailbox buid contexts =
   printf "handle_copy %d %s\n" (List.length sequence) mailbox;
@@ -291,7 +319,7 @@ let handle_copy writer sequence mailbox buid contexts =
   | `NotExists -> return_resp_ctx None (Resp_No(None,"Mailbox doesn't exist")) None
   | `NotSelectable ->  return_resp_ctx None (Resp_No(None,"Mailbox is not selectable")) None
   | `Error e -> return_resp_ctx None (Resp_No(None,e)) None
-  | `Ok () -> return_resp_ctx None (Resp_Ok(None, "COPY completed")) None
+  | `Ok -> return_resp_ctx None (Resp_Ok(None, "COPY completed")) None
 
 let handle_expunge writer contexts =
   printf "handle_expunge\n";
@@ -307,53 +335,55 @@ let handle_expunge writer contexts =
  * Done Selected state
 **)
 
-let handle_any writer request context = match request with
-  | Cmd_Id l -> handle_id writer l
-  | Cmd_Capability -> handle_capability writer
+let handle_any request contexts ipc_ctx context = match request with
+  | Cmd_Id l -> handle_id ipc_ctx.net_w l
+  | Cmd_Capability -> handle_capability ipc_ctx.net_w
   | Cmd_Noop -> handle_noop()
-  | Cmd_Logout -> handle_logout writer
+  | Cmd_Logout -> handle_logout ipc_ctx
 
-let handle_notauthenticated writer request context = match request with
-  | Cmd_Authenticate (a,s) -> handle_authenticate writer a s
-  | Cmd_Login (u, p) -> handle_login writer u p
+let handle_notauthenticated request contexts ipc_ctx context = match request with
+  | Cmd_Authenticate (a,s) -> handle_authenticate a s ipc_ctx
+  | Cmd_Login (u, p) -> handle_login u p ipc_ctx
   | Cmd_Starttls -> return_resp_ctx None (Resp_Bad(None,"")) None
 
-let handle_authenticated reader writer request contexts context = match request with
-  | Cmd_Select mailbox -> handle_select writer mailbox contexts true
-  | Cmd_Examine mailbox -> handle_select writer mailbox contexts false
-  | Cmd_Create mailbox -> handle_create writer mailbox contexts
-  | Cmd_Delete mailbox -> handle_delete writer mailbox contexts
-  | Cmd_Rename (mailbox,to_mailbox) -> handle_rename writer mailbox to_mailbox contexts
-  | Cmd_Subscribe mailbox -> handle_subscribe writer mailbox contexts
-  | Cmd_Unsubscribe mailbox -> handle_unsubscribe writer mailbox contexts
-  | Cmd_List (reference, mailbox) -> handle_list writer reference mailbox contexts false
-  | Cmd_Lsub (reference, mailbox) -> handle_list writer reference mailbox contexts true
-  | Cmd_Status (mailbox,optlist) -> handle_status writer mailbox optlist contexts
-  | Cmd_Append (mailbox,flags,date,size) -> handle_append reader writer mailbox flags date size contexts
-  | Cmd_Idle -> handle_idle writer
-  | Cmd_Done -> handle_done writer
+let handle_authenticated request contexts ipc_ctx context = match request with
+  | Cmd_Select mailbox -> handle_select ipc_ctx.net_w mailbox contexts true
+  | Cmd_Examine mailbox -> handle_select ipc_ctx.net_w mailbox contexts false
+  | Cmd_Create mailbox -> handle_create ipc_ctx.net_w mailbox contexts
+  | Cmd_Delete mailbox -> handle_delete ipc_ctx.net_w mailbox contexts
+  | Cmd_Rename (mailbox,to_mailbox) -> handle_rename ipc_ctx.net_w mailbox to_mailbox contexts
+  | Cmd_Subscribe mailbox -> handle_subscribe ipc_ctx.net_w mailbox contexts
+  | Cmd_Unsubscribe mailbox -> handle_unsubscribe ipc_ctx.net_w mailbox contexts
+  | Cmd_List (reference, mailbox) -> handle_list ipc_ctx.net_w reference mailbox contexts false
+  | Cmd_Lsub (reference, mailbox) -> handle_list ipc_ctx.net_w reference mailbox contexts true
+  | Cmd_Status (mailbox,optlist) -> handle_status ipc_ctx.net_w mailbox optlist contexts
+  | Cmd_Append (mailbox,flags,date,size) -> 
+      handle_append ipc_ctx.net_r ipc_ctx.net_w mailbox flags date size contexts
+  | Cmd_Idle -> handle_idle ipc_ctx.net_w
+  | Cmd_Done -> handle_done ipc_ctx
 
-let handle_selected writer request contexts context = match request with
+let handle_selected request contexts ipc_ctx context = match request with
   | Cmd_Check -> return_resp_ctx None (Resp_Bad(None,"")) None
-  | Cmd_Close -> handle_close writer contexts context
-  | Cmd_Expunge -> handle_expunge writer contexts
-  | Cmd_Search (charset,search, buid) -> handle_search writer charset search buid contexts
-  | Cmd_Fetch (sequence,fetchattr, buid) -> handle_fetch writer sequence fetchattr buid contexts
-  | Cmd_Store (sequence,flagsatt,flagsval, buid) -> handle_store writer sequence flagsatt flagsval buid contexts
-  | Cmd_Copy (sequence,mailbox, buid) -> handle_copy writer sequence mailbox buid contexts
+  | Cmd_Close -> handle_close ipc_ctx.net_w contexts context
+  | Cmd_Expunge -> handle_expunge ipc_ctx.net_w contexts
+  | Cmd_Search (charset,search, buid) -> handle_search ipc_ctx.net_w charset search buid contexts
+  | Cmd_Fetch (sequence,fetchattr, buid) -> handle_fetch ipc_ctx.net_w sequence fetchattr buid contexts
+  | Cmd_Store (sequence,flagsatt,flagsval, buid) -> 
+      handle_store ipc_ctx.net_w sequence flagsatt flagsval buid contexts
+  | Cmd_Copy (sequence,mailbox, buid) -> handle_copy ipc_ctx.net_w sequence mailbox buid contexts
 
-let handle_commands reader writer contexts context = 
+let handle_commands contexts ipc_ctx context = 
   try_with ( fun () -> 
     let state = contexts.state_ctx in
     (
       match context.request.req with
-      | Any r -> printf "handling any\n%!"; handle_any writer r context
+      | Any r -> printf "handling any\n%!"; handle_any r contexts ipc_ctx context 
       | Notauthenticated r when state = State_Notauthenticated-> 
-        printf "handling nonauthenticated\n%!"; handle_notauthenticated writer r context
+        printf "handling nonauthenticated\n%!"; handle_notauthenticated r contexts ipc_ctx context 
       | Authenticated r when state = State_Authenticated || state = State_Selected -> 
-        printf "handling authenticated\n%!"; handle_authenticated reader writer r contexts context
+        printf "handling authenticated\n%!"; handle_authenticated r contexts ipc_ctx context 
       | Selected r when state = State_Selected -> 
-        printf "handling selected\n%!"; handle_selected writer r contexts context
+        printf "handling selected\n%!"; handle_selected r contexts ipc_ctx context 
       | Done -> printf "Done, should log out\n%!"; 
         return_resp_ctx (Some State_Logout) (Resp_Bad(None,"")) None
       | _ -> return_resp_ctx None (Resp_Bad(None, "Bad Command")) None
@@ -408,7 +438,7 @@ let rec read_network reader writer buffer =
           let literal = Str.string_after buff i in
           Buffer.add_string buffer sub;
           printf "line is ending in literal %d %s --%s--\n%!" len literal sub;
-          if match_regex (Buffer.contents buffer) append_regex then (
+          if match_regex ~case:false (Buffer.contents buffer) append_regex then (
             printf "handling append\n%!";
             Buffer.add_string buffer literal;
             Buffer.add_string buffer "\r\n";
@@ -432,15 +462,15 @@ let rec read_network reader writer buffer =
           )
         )
 
-let rec handle_client_requests contexts reader writer =
+let rec handle_client_requests contexts ipc_ctx =
   pr_state contexts;
   let buffer = Buffer.create 0 in
-  read_network reader writer buffer >>= function
+  read_network ipc_ctx.net_r ipc_ctx.net_w buffer >>= function
     | `Eof -> printf "connection closed\n%!";return ()
     | `Ok -> let buff = Buffer.contents buffer in printf "read buff --%s--\n%!" buff;
       let context = get_request_context contexts buff in
       (match context with 
-      | Ok (ctx) -> handle_commands reader writer contexts ctx
+      | Ok (ctx) -> handle_commands contexts ipc_ctx ctx 
       | Error e -> (return_resp_ctx (Some (contexts.state_ctx)) (Resp_Bad(None, e)) None)) >>= 
         fun {resp_state_ctx;resp_ctx;resp_mbx_ctx} ->
         if resp_state_ctx = (Some State_Logout) then
@@ -450,11 +480,11 @@ let rec handle_client_requests contexts reader writer =
         )
         else
         (
-          handle_response writer context resp_ctx;
+          handle_response ipc_ctx.net_w context resp_ctx;
           printf "updating contexts and recursing into handle_client_requests\n%!";
           let new_contexts = 
             ({req_ctx = update_contexts contexts context resp_ctx;
              state_ctx = (match resp_state_ctx with Some s->s|None->contexts.state_ctx);
              mbx_ctx = (match resp_mbx_ctx with Some m->m|None-> contexts.mbx_ctx)}) in
-          handle_client_requests new_contexts reader writer
+          handle_client_requests new_contexts ipc_ctx
         )
