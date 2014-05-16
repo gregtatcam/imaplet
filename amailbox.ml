@@ -477,16 +477,16 @@ let store (mbx:t) (resp_writer:(string->unit)) (sequence:States.sequence)
           Accessor.StorageAccessor.reader_metadata Accessor.this (`Position seq) >>= function
             | `Eof -> return ()
             | `Ok metadata -> 
-              let metadata =
-              match Interpreter.exec_store metadata seq sequence storeattr flagsval buid with
-              | `None -> metadata
-              | `Silent metadata -> metadata
-              | `Ok (metadata,res) -> resp_writer res;metadata
+              let update metadata seq =
+                Accessor.StorageAccessor.writer_metadata Accessor.this metadata 
+                (`Position seq) >>= function
+                 | `Eof -> return ()
+                 | `Ok -> doread accs (seq + 1)
               in
-              Accessor.StorageAccessor.writer_metadata Accessor.this metadata 
-              (`Position seq) >>= function
-                | `Eof -> return ()
-                | `Ok -> doread accs (seq + 1)
+              match Interpreter.exec_store metadata seq sequence storeattr flagsval buid with
+              | `None -> doread accs (seq + 1)
+              | `Silent metadata -> update metadata seq
+              | `Ok (metadata,res) -> resp_writer res;update metadata seq
         in
         doread accs 1
       ) >>= fun () -> return `Ok
