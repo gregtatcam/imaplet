@@ -30,7 +30,7 @@ let next_line lexbuf =
 
 let first = ref true
 
-let debug frmt = printf frmt (**(fun format a -> ())**)
+let debug frmt = printf frmt (*(fun format a -> ())*)
 
 let print_first f = if !f = true then printf "first is true\n" else printf "first is false\n"
 

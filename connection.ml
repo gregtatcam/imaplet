@@ -31,13 +31,20 @@ let init_connection w =
   upon (Writer.flushed w) (fun() -> ());
   States.State_Notauthenticated
 
+let init_storage () =
+  let open IrminSrvIpc in
+  match Configuration.get_store() with
+  | `Mbox | `Mailbox -> return None
+  | `Irminsule -> get_irmin_server_ipc ()
+
 (**
  * accepted client's connection
 **)
 let client_connect r w =
+  init_storage () >>= fun str_ipc ->
   let open Contexts in
   let state = init_connection w in
   let contexts = 
     ({req_ctx = (Contextlist.create()); state_ctx = state; mbx_ctx = Amailbox.empty() }) in
-  let ipc_ctx = { logout_ctx = Condition.create(); net_r = r; net_w = w } in
+  let ipc_ctx = { logout_ctx = Condition.create(); net_r = r; net_w = w ; str_rw = str_ipc} in
   State.handle_client_requests contexts ipc_ctx

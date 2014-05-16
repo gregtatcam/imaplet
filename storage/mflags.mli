@@ -23,4 +23,4 @@ type mailboxFlags =
   | Flags_Seen
   | Flags_Keyword of string
   | Flags_Extention of string
-  | Flags_Template
+  | Flags_Template with sexp

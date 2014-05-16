@@ -13,40 +13,17 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
-open Core.Std
 open Async.Std
+open Primitives
+open Storage
 
-(** do daemon steps if needed **)
+module IrminsuleStorageAccessor : MailboxAccessor_intf with 
+  type a = string*BasicLocation.t*Reader.t*Writer.t and
+  type t = string*BasicLocation.t*Reader.t*Writer.t
+ 
 
-(**
- * handle configuration options
-**)
-let handle_config = function
-| Some _ -> () (** TBD **)
-| None -> ()
-
-(**
- * handle command line
-**)
-let command =
-  Command.basic
-    ~summary:"run imaplet server"
-      Command.Spec.(
-      empty
-      +> flag "-c" (optional file) ~doc:"configuration file(optional)"
-      +> flag "-p" (optional_with_default 143 int) ~doc:"bind port(optional)"
-      +> flag "-a" (optional string) ~doc:"bind address(optional)"
-      )
-      (fun c p h () -> 
-        handle_config c; 
-        upon (Server.create ~port:p ~host:h) (fun _ -> ());
-        never_returns (Scheduler.go()))
-
-(**
- * start the server
-**)
-let () = 
-  try
-    Command.run command
-  with Exit ->
-    Printexc.print_backtrace stderr
+module IrminsuleStorage : MailboxStorage_intf with 
+  type loc = BasicLocation.t and 
+  type param=string*Reader.t*Writer.t and 
+  type t = string*BasicLocation.t*BasicLocation.t*BasicLocation.t*Reader.t*Writer.t and 
+  type accs = IrminsuleStorageAccessor.t

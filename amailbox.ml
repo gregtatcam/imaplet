@@ -20,6 +20,8 @@ open Configuration
 open Utils
 open Regex
 open Storage
+open StorageMeta
+open IrminStorageClnt
 open Mflags
 open Email_message
 
@@ -29,21 +31,28 @@ exception FailedStatus
 
 type selection = Select of string | Examine of string
 
-type t = string * string * string option * selection option
+type t = string * string * string option * selection option * 
+  (Reader.t * Writer.t) option
 
 (** locks TBD !!!! **)
 
 (** inbox folder, mailboxes folder, user account, selected -> type **)
 (** validate directory and inbox TBD **)
-let create user =
-  ((inbox user), (mailboxes user), Some user, None)
+let create user str_rw =
+  let mbox =
+    if (Configuration.get_store()) = `Irminsule then
+      Configuration.irmin_mailboxes ()
+    else
+      Configuration.mailboxes user
+  in
+  ((inbox user), mbox, Some user, None, str_rw)
 
-let update (mbx:t) (s:selection option) : t=
-  let (i,m,u,_) = mbx in
-  (i,m,u,s)
+let update mbx s : t=
+  let (i,m,u,_,rw) = mbx in
+  (i,m,u,s,rw)
 
 let selected_mbox mbx =
-  let (_,_,_,s) = mbx in
+  let (_,_,_,s,rw) = mbx in
   match s with
   | None -> None
   | Some s ->
@@ -52,11 +61,11 @@ let selected_mbox mbx =
       | Select n -> Some n
 
 (** create an empty amailbox type **)
-let empty () = ("","",None,None)
+let empty () = ("","",None,None,None)
 
 (** is empty type **)
 let is_empty mbx =
-  let (_, _, u,_) = mbx in
+  let (_, _, u,_,_) = mbx in
   match u with 
   | None -> true
   | Some _ -> false
@@ -88,17 +97,17 @@ let mbox_item item reference =
 
 (** get mailbox path **)
 let get_mbox_path mbx name =
-  let (i,m,_,_) = mbx in
-  (if match_regex ~case:false name "INBOX" = true then
+  let (i,m,_,_,_) = mbx in
+  (if Configuration.get_store() <> `Irminsule && match_regex ~case:false name "INBOX" = true then
     i
   else
     concat_path m name)
 
-let storage_factory mbx mailbox1 ?mailbox2 () =
+let storage_factory_mbox mbx mailbox1 ?mailbox2 () =
   let mk_arg mbx mailbox =
     let file = get_mbox_path mbx mailbox in
     let open Primitives in
-    let (_,m,_,_) = mbx in
+    let (_,m,_,_,_) = mbx in
     let loc = BasicLocation.create file in
     let mloc = BasicLocation.create m in
     let iloc = BasicLocation.create (Configuration.inbox_root()) in
@@ -107,6 +116,27 @@ let storage_factory mbx mailbox1 ?mailbox2 () =
   let tp1 = mk_arg mbx mailbox1 in
   let tp2 = if mailbox2 = None then None else Some (mk_arg mbx (Option.value_exn mailbox2)) in
   build_strg_inst (module UnixMboxMailboxStorage) tp1 ?tp2 ()
+
+let storage_factory_irmin mbx mailbox1 ?mailbox2 () =
+  let mk_arg mbx mailbox =
+    let file = get_mbox_path mbx mailbox in
+    let open Primitives in
+    let (_,m,u,_,rw) = mbx in
+    let loc = BasicLocation.create file in
+    let mloc = BasicLocation.create m in
+    let iloc = BasicLocation.create (Configuration.irmin_inbox_root()) in
+    let (r,w) = Option.value_exn rw in
+    let param = (Option.value_exn u,r,w) in
+    (loc, mloc, iloc, param)
+  in
+  let tp1 = mk_arg mbx mailbox1 in
+  let tp2 = if mailbox2 = None then None else Some (mk_arg mbx (Option.value_exn mailbox2)) in
+  build_strg_inst (module IrminsuleStorage) tp1 ?tp2 ()
+
+let storage_factory mbx mailbox1 ?mailbox2() =
+  match (Configuration.get_store()) with
+  | `Irminsule -> storage_factory_irmin mbx mailbox1 ?mailbox2 ()
+  | _ -> storage_factory_mbox mbx mailbox1 ?mailbox2 ()
 
 let mailbox_exists mbx mailbox =
   let (module Mailbox) = storage_factory mbx mailbox () in
@@ -125,7 +155,7 @@ let valid_mailbox mbx mailbox : ([`NotExists|`NotSelectable|`ValidMailbox] Defer
 
 (** get mailbox path from index path **)
 let get_mbox_from_index mbx index : (string) =
-  let (i,m,_,_) = mbx in
+  let (i,m,_,_,_,_) = mbx in
   let l = Str.split (Str.regexp "/\\.imaplet/") index in
   if m = List.nth_exn l 0 && match_regex ~case:false (List.nth_exn l 1) "inbox" then
     i
@@ -207,8 +237,8 @@ let rec listmbx_ mailbxs (reference:string) (mailbox:string)
     (* item has path relative to the start, i.e. root + reference *)
     Mailbox.MailboxStorage.list_store Mailbox.this ~init:[] ~f:(fun acc item ->
       match item with
-        | `Folder (item,cnt)  -> select_item acc reference item (Some cnt)
-        | `Storage item  -> select_item acc reference item None
+        | `Folder (item,cnt)  -> return (select_item acc reference item (Some cnt))
+        | `Storage item  -> return (select_item acc reference item None)
     )
 
 (** add to the calculated list the reference folder and inbox **)
@@ -373,6 +403,13 @@ let append mbx (name:string) (reader:Reader.t) (writer:Writer.t) (flags:mailboxF
           ~f:(fun () message -> 
             let (module Accessor : StorageAccessor_inst) = accs in
             (* need to add flags, TBD *)
+            let flags = Option.value flags ~default:[] in
+            let flags =
+            if List.find flags ~f:(fun f -> if f = Flags_Recent then true else false) <> None then
+              Some flags
+            else
+              Some (Flags_Recent :: flags)
+            in
             let metadata = empty_mailbox_message_metadata() in
             let metadata = update_mailbox_message_metadata ~data:metadata
             ?internal_date:date ?flags ()
@@ -394,21 +431,7 @@ let search mbx (keys:('a)States.searchKeys) (buid:bool) :
     | `NotSelectable -> return (`NotSelectable)
     | `ValidMailbox -> 
       let (module Mailbox) = storage_factory mbx name () in
-      Mailbox.MailboxStorage.fold Mailbox.this ~exclusive:true ~init:[] ~f:(fun acc accs ->
-        let rec doread acc accs seq =
-          let (module Accessor : StorageAccessor_inst) = accs in
-          Accessor.StorageAccessor.reader Accessor.this (`Position seq) >>= function
-            | `Eof -> return acc
-            | `Ok (message,metadata) -> 
-              let res = Interpreter.exec_search message.email keys metadata seq in 
-              if res then
-                let selected = if buid then metadata.uid else seq in
-                doread (selected :: acc) accs (seq + 1)
-              else
-                doread acc accs (seq + 1)
-        in
-        doread [] accs 1
-      ) >>= fun acc -> return (`Ok acc)
+      Mailbox.MailboxStorage.search_with Mailbox.this ~filter:(buid,keys) >>= fun acc -> return (`Ok acc)
 
 let fetch (mbx:t) (resp_writer:(string->unit)) (sequence:States.sequence) (fetchattr:States.fetch)
 (buid:bool) : [`NotExists|`NotSelectable|`Error of string|`Ok ] Deferred.t = 
@@ -424,11 +447,15 @@ let fetch (mbx:t) (resp_writer:(string->unit)) (sequence:States.sequence) (fetch
         let rec doread accs seq =
           let (module Accessor : StorageAccessor_inst) = accs in
           Accessor.StorageAccessor.reader Accessor.this (`Position seq) >>= function
-            | `Eof -> return ()
+            | `Eof|`OutOfBounds -> return ()
             | `Ok (message,metadata) -> 
               let res = Interpreter.exec_fetch seq sequence message metadata fetchattr buid in
               match res with
-              | Some res -> resp_writer res; doread accs (seq + 1)
+              | Some res -> 
+                  (
+                    printf "%s" (Email_message.Mailbox.Message.to_string message);
+                    resp_writer res; doread accs (seq + 1)
+                  )
               | None -> doread accs (seq + 1)
         in
         doread accs 1
@@ -476,11 +503,8 @@ let copy (mbx:t) (dest_mbox:string) (sequence:States.sequence) (buid:bool) :
     | `NotExists -> return `NotExists
     | `ValidMailbox -> 
       let (module Mailbox) = storage_factory mbx name ~mailbox2:dest_mbox () in
-      Mailbox.MailboxStorage.copy Mailbox.this (Option.value_exn Mailbox.this1) 
-      ~f:(fun seq (_,metadata) ->
-        let id = (if buid then metadata.uid else seq) in
-        (Interpreter.exec_seq sequence id)
-      ) >>= fun _ -> return `Ok
+      Mailbox.MailboxStorage.copy_with Mailbox.this (Option.value_exn Mailbox.this1) 
+      ~filter:(buid, sequence) >>= fun _ -> return `Ok
 
 (** permanently remove messages with \Deleted flag set 
  * create a temp mailbox, copy filtered content to the box
@@ -493,9 +517,6 @@ let expunge (mbx:t) (resp_writer:(string->unit)) :
   | Some name ->
     let tmp_mbox = ".imaplet." ^ new_uidvalidity() in
     let (module Mailbox) = storage_factory mbx name ~mailbox2:tmp_mbox () in
-    Mailbox.MailboxStorage.copy Mailbox.this (Option.value_exn Mailbox.this1) 
-    ~f:(fun seq (_,metadata) ->
-      List.find metadata.flags 
-        ~f:(fun fl -> if fl = Flags_Deleted then true else false) = None 
-    ) >>= fun _ -> 
-      Mailbox.MailboxStorage.move (Option.value_exn Mailbox.this1) Mailbox.this >>= fun() -> return `Ok
+    Mailbox.MailboxStorage.expunge Mailbox.this ~tmp:(Option.value_exn Mailbox.this1) 
+    ~f:(fun seq -> resp_writer ((string_of_int seq) ^ " EXPUNGE")) >>= fun _ ->
+      return `Ok

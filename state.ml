@@ -33,31 +33,50 @@ let make_resp_ctx resp_state_ctx resp_ctx resp_mbx_ctx =
 let return_resp_ctx resp_state_ctx resp_ctx resp_mbx_ctx =
   return (make_resp_ctx resp_state_ctx resp_ctx resp_mbx_ctx);;
 
-let get_storage file mbox_root inbox_root =
+let unix_mbox_mailbox loc mbox_root inbox_root =
   let open Storage in
-  let open Primitives in
-  let loc = BasicLocation.create file in
   build_strg_inst (module UnixMboxMailboxStorage) (loc, mbox_root, inbox_root,
   Configuration.mbox_index_params()) ()
 
+let irmin_mailbox user loc mbox_root inbox_root rw =
+  let open Storage in
+  let open IrminStorageClnt in
+  let (r,w) = rw in
+  let param = (user,r,w) in
+  build_strg_inst (module IrminsuleStorage) (loc, mbox_root, inbox_root, param) ()
+
+let get_storage user str_rw =
+  let open Primitives in
+  let loc = BasicLocation.create (Configuration.mailboxes user) in
+  match str_rw with 
+  | None -> unix_mbox_mailbox loc (Configuration.mailboxes user) (Configuration.inbox_root())
+  (* irmin inbox update needs work TBD *)
+  | Some rw -> irmin_mailbox user "/" 
+    (Configuration.irmin_mailboxes()) (Configuration.irmin_inbox_root()) rw 
+    
+
 (* check for inbox updates *)
-let rec inbox_monitor user logout_wait sec =
+let rec inbox_monitor user str_rw logout_wait sec =
+  let open IrminSrvIpc in
   (Clock.with_timeout 
     (Time.Span.create ~sec ()) 
     logout_wait) >>= function 
-      | `Result () -> return ()
+      | `Result () -> close_irmin_server_ipc str_rw
       | `Timeout ->
-        let (module SI) = get_storage 
-          (Configuration.inbox user) (Configuration.mailboxes user) (Configuration.inbox_root()) in
+        let (module SI) = get_storage user str_rw in
            SI.MailboxStorage.update_index SI.this >>= (function
               | `NotExists -> SI.MailboxStorage.rebuild_index SI.this
               | `Ok -> return ()
-            ) >>= fun () -> inbox_monitor user logout_wait (Configuration.inbox_refresh())
+            ) >>= fun () -> inbox_monitor user str_rw logout_wait (Configuration.inbox_refresh())
 
-let start_inbox_monitor user logout =
-  don't_wait_for (inbox_monitor user (Condition.wait logout) 0 ) 
+let start_monitors user ipc_ctx = 
+  let open IrminSrvIpc in
+  don't_wait_for (
+    get_irmin_server_ipc () >>= fun str_rw ->
+    inbox_monitor user str_rw (Condition.wait ipc_ctx.logout_ctx) 0 
+  ) 
 
-let stop_inbox_monitor logout =
+let stop_monitors logout =
   Condition.broadcast logout ()
 
 (** parse the buffer, return ok (request) or error (msg) **)
@@ -100,7 +119,7 @@ let handle_capability writer =
 
 let handle_logout ipc_ctx =
   write_resp ipc_ctx.net_w (Resp_Bye(None,""));
-  stop_inbox_monitor ipc_ctx.logout_ctx;
+  stop_monitors ipc_ctx.logout_ctx;
   return_resp_ctx (Some State_Logout) (Resp_Ok (None, "LOGOUT completed")) None
 
 (** TBD should have a hook into the maintenance to recet inactivity **)
@@ -114,7 +133,7 @@ let handle_idle writer =
   return_resp_ctx None (Resp_Any ("+ idling")) None
 
 let handle_done ipc_ctx =
-  stop_inbox_monitor ipc_ctx.logout_ctx;
+  stop_monitors ipc_ctx.logout_ctx;
   return_resp_ctx None (Resp_Ok (None, "IDLE")) None
 
 (**
@@ -122,14 +141,14 @@ let handle_done ipc_ctx =
 **)
 let handle_authenticate auth_type text ipc_ctx =
   Account.authenticate ipc_ctx.net_w auth_type text >>= function
-    | Ok (m,u) -> start_inbox_monitor u ipc_ctx.logout_ctx; printf "started inbox monitor\n%!";
-      return_resp_ctx (Some State_Authenticated) m (Some (Amailbox.create u))
+    | Ok (m,u) -> start_monitors u ipc_ctx; printf "started inbox monitor\n%!";
+      return_resp_ctx (Some State_Authenticated) m (Some (Amailbox.create u ipc_ctx.str_rw))
     | Error e -> return_resp_ctx None e None
 
 let handle_login user password ipc_ctx =
   Account.login ipc_ctx.net_w user password >>= function
-    | Ok (m,u) -> start_inbox_monitor u ipc_ctx.logout_ctx; printf "started inbox monitor\n%!";
-      return_resp_ctx (Some State_Authenticated) m (Some (Amailbox.create u))
+    | Ok (m,u) -> start_monitors u ipc_ctx; printf "started inbox monitor\n%!";
+      return_resp_ctx (Some State_Authenticated) m (Some (Amailbox.create u ipc_ctx.str_rw))
     | Error e -> return_resp_ctx None e None
 (**
  * Done Not Authenticated state
@@ -478,10 +497,11 @@ let rec read_network reader writer buffer =
         )
 
 let rec handle_client_requests contexts ipc_ctx =
+  let open IrminSrvIpc in
   pr_state contexts;
   let buffer = Buffer.create 0 in
   read_network ipc_ctx.net_r ipc_ctx.net_w buffer >>= function
-    | `Eof -> printf "connection closed\n%!";return ()
+    | `Eof -> printf "connection closed\n%!";close_irmin_server_ipc ipc_ctx.str_rw
     | `Ok -> let buff = Buffer.contents buffer in printf "read buff --%s--\n%!" buff;
       let context = get_request_context contexts buff in
       (match context with 

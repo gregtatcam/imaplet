@@ -16,6 +16,7 @@
 open Core.Std
 open Async.Std
 open Storage
+open StorageMeta
 open Mflags
 
 type t
@@ -23,7 +24,7 @@ type t
 exception BadMailbox of string
 
 (** user account -> type **)
-val create : string -> t
+val create : string -> (Reader.t*Writer.t) option -> t
 
 (** create empty mailbox **)
 val empty : unit -> t 

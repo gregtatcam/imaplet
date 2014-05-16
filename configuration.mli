@@ -41,3 +41,16 @@ val get_mbox_flags : (string list*string list)
 
 (* mbox index header/record size *)
 val mbox_index_params : unit -> (int * int)
+
+(* get type of storage *)
+val get_store : unit -> [`Mbox|`Mailbox|`Irminsule] 
+
+val irmin_srv_addr : unit -> string
+
+val irmin_srv_port : unit -> int
+
+val irmin_srv_exec : unit -> string
+
+val irmin_inbox_root : unit -> string
+
+val irmin_mailboxes : unit -> string

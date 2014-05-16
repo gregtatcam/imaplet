@@ -18,83 +18,7 @@ open Async.Std
 open Primitives
 open Email_message
 open Mflags
-
-type mailbox_metadata = {
-  uidvalidity: string;
-  uidnext: int;
-  modseq: int64;
-  count: int;
-  unseen: int;
-  nunseen: int;
-  recent: int;
-}
-
-type mailbox_message_metadata = {
-  uid: int;
-  modseq: int64;
-  internal_date: Time.t;
-  size: int;
-  flags: mailboxFlags list;
-}
-
-type mbox_message_metadata = {
-  metadata: mailbox_message_metadata;
-  start_offset: int64;
-  end_offset: int64;
-}
-
-type mbox_index = [`Header of mailbox_metadata | `Record of mbox_message_metadata]
-
-let new_uidvalidity() =
-  let t = Time.now() in
-  let f = (Time.to_float t) in
-  string_of_int (Float.to_int f)
-
-let empty_mailbox_metadata ?uidvalidity () =
-  let uidvalidity =
-    (match uidvalidity with None->""|Some u -> u) in
-  {uidvalidity;modseq=Int64.zero;uidnext=0;count=0;unseen=0;nunseen=0;recent=0}
-
-let empty_mailbox_message_metadata() =
-  {uid=Int.neg 1;modseq=Int64.zero;internal_date=Time.now();size=0;flags=[]}
-
-let empty_mbox_message_metadata() =
-  {metadata=empty_mailbox_message_metadata();start_offset=Int64.zero;end_offset=Int64.zero}
-
-let update_mailbox_metadata ~header ?uidvalidity ?uidnext ?modseq
-?count ?unseen ?nunseen ?recent () : (mailbox_metadata) =
-  let uidvalidity=(match uidvalidity with None->header.uidvalidity|Some u->u) in
-  let uidnext=(match uidnext with None->header.uidnext|Some u->u) in
-  let modseq=(match modseq with None->header.modseq|Some m->m) in
-  let count=(match count with None->header.count|Some c->c) in
-  let unseen=(match unseen with None->header.unseen|Some u->u) in
-  let nunseen=(match nunseen with None->header.nunseen|Some n->n) in
-  let recent=(match recent with None->header.recent|Some r->r) in
-  {uidvalidity;modseq;uidnext;count;unseen;nunseen;recent}
-
-let update_mailbox_message_metadata ~data ?uid ?modseq
-?internal_date ?size ?flags () : (mailbox_message_metadata) =
-  let uid =
-    (match uid with |None -> data.uid|Some uid -> uid) in
-  let modseq =
-    (match modseq with |None -> data.modseq|Some modseq -> modseq) in
-  let internal_date =
-    (match internal_date with |None->data.internal_date|Some d -> d) in
-  let size =
-    (match size with |None->data.size|Some i -> i) in
-  let flags = 
-    (match flags with |None->data.flags|Some f->f) in
-  {uid;modseq;internal_date;size;flags}
-
-let update_mbox_message_metadata ~data ?uid ?modseq
-?internal_date ?size ?start_offset ?end_offset ?flags () : (mbox_message_metadata) =
-  let metadata = update_mailbox_message_metadata ~data:data.metadata ?uid ?modseq ?internal_date
-  ?size ?flags () in
-  let start_offset =
-    (match start_offset with |None->data.start_offset|Some i -> i) in
-  let end_offset =
-    (match end_offset with |None->data.end_offset|Some i -> i) in
-  {metadata;start_offset;end_offset}
+open StorageMeta
 
 module type StorageAccessor_intf = 
   sig
@@ -142,6 +66,9 @@ module type MailboxAccessor_intf =
   sig
     include StorageAccessor_intf with type blk := mailbox_data
 
+    val writer : t -> [`Append] -> mailbox_data ->
+      [`Ok|`InvalidBlock] Deferred.t
+
     val reader_metadata : t -> [`Position of int] ->
       [`Ok of mailbox_message_metadata|`Eof|`OutOfBounds] Deferred.t
 
@@ -157,7 +84,7 @@ module type StorageAccessor_inst =
 
 let build_accs_inst
   (type a)
-  (module SA : MailboxAccessor_intf with type a = a)
+  (module SA : MailboxAccessor_intf with type a = a and type t = a)
   desc
   =
   (module struct
@@ -205,7 +132,7 @@ module type Storage_intf =
 
     (* list storage *)
     val list_store : t -> init:'a ->
-      f:('a -> [`Folder of string*int|`Storage of string] -> 'a) -> 'a Deferred.t
+      f:('a -> [`Folder of string*int|`Storage of string] -> 'a Deferred.t) -> 'a Deferred.t
 
     (* copy storage with filter *)
     val copy : t -> t -> f:(int -> blk -> bool) -> [`Ok|`SrcNotExists|`DestExists] Deferred.t
@@ -221,6 +148,15 @@ module type MailboxStorage_intf =
 
     (* read/update storage, overwriting *)
     val fold : t -> ?exclusive:bool -> init:'a -> f:('a -> (module StorageAccessor_inst) -> 'a Deferred.t) -> 'a Deferred.t
+
+    (* copy filtered *)
+    val copy_with : t -> t -> filter:(bool*States.sequence) -> [`Ok|`SrcNotExists|`DestExists] Deferred.t
+
+    (* copy filtered *)
+    val search_with : t -> filter:(bool*(States.searchKey) States.searchKeys) -> int list Deferred.t
+
+    (* expunge messages with \Deleted flag *)
+    val expunge : t -> ?tmp:t -> f:(int -> unit) -> unit Deferred.t
 
     (* update index from the mailbox *)
     val update_index : t -> [`NotExists|`Ok] Deferred.t
@@ -239,6 +175,12 @@ module type MailboxStorage_intf =
 
     (* unsubscribe the mailbox *)
     val unsubscribe : t -> unit Deferred.t
+
+    (* create user account *)
+    val create_account : t -> [`Ok|`Exists] Deferred.t
+
+    (* remove user account *)
+    val remove_account : t -> [`Ok|`DoesntExist] Deferred.t
   end
 
 
@@ -248,7 +190,7 @@ module type Storage_inst =
     val this : MailboxStorage.t
     val this1 : MailboxStorage.t option
   end
-
+(*
 let build_strg_inst
   (type l)
   (type p)
@@ -265,6 +207,24 @@ let build_strg_inst
     let this1 = match tp2 with | None -> None | Some (loc,m,i,param)-> 
       Some (S.create_st loc ~dirs:(m,i) param)
     end : Storage_inst with type MailboxStorage.accs = S.accs)
+*)
+let build_strg_inst
+  (type l)
+  (type p)
+  (type a)
+  (module S : MailboxStorage_intf with type loc = l and type param = p and type accs = a)
+  params
+  ?tp2
+  ()
+  =
+  let (loc,m,i,param) = params in
+  (module struct
+    module MailboxStorage = S
+    let this = S.create_st loc ~dirs:(m,i) param
+    let this1 = match tp2 with | None -> None | Some (loc,m,i,param)-> 
+      Some (S.create_st loc ~dirs:(m,i) param)
+    end : Storage_inst)
+
 
 (* define storage interface for index and mailboxes, for inst:
   mbox: all messages are contained in one file (mailbox)
@@ -294,20 +254,17 @@ module MboxIndexAccessor
     (* set position, return size of the record corresponding to the position *)
     let set_pos d pos hs rs =
       match pos with
-      | `Position pos -> printf "setting position %d%!" pos;
+      | `Position pos -> 
         if pos = 0 then (* header *)
           A'.seek_start d >>= fun _ -> return (`Ok hs)
         else (
           let pos = Int64.(+) 
             (Int64.of_int hs) 
             (Int64.( * ) (Int64.of_int (pos-1)) (Int64.of_int rs)) in
-          printf " offset %s%!" (Int64.to_string pos);
           A'.seek_set d (P'.of_int64 pos) >>= fun set_pos -> 
           if (P'.to_int64 set_pos) = pos then (
-            printf " ok\n%!";
             return (`Ok rs)
           ) else (
-            printf " outofbounds\n%!";
             return `OutOfBounds
           )
         )
@@ -326,7 +283,7 @@ module MboxIndexAccessor
           (let blk = Block.from_int sz in
           A'.reader d blk >>= function
             | `Ok blk -> return (`Ok (Marshal.from_string (Block.content blk) 0))
-            | `Eof i -> printf "got index eof %d\n%!" (Block.size i); return `Eof
+            | `Eof i -> return `Eof
           )
         | `OutOfBounds -> return `OutOfBounds
 
@@ -423,20 +380,15 @@ module MboxMailboxAccessor
       let (ac,a) = tp in
       upd_pos tp pos >>= fun pos ->
       IDXAC'.reader_record ac pos >>= function
-      | `Eof -> printf "got eof while reading index\n%!"; return `Eof
+      | `Eof -> return `Eof
       | `OutOfBounds -> return `OutOfBounds
       | `Ok rc -> 
-        printf "offset %d start %s end %s\n%!" (match pos with `Position pos ->
-          pos) (Int64.to_string rc.start_offset)
-        (Int64.to_string rc.end_offset);
         let pos = P'.of_int64 rc.start_offset in
         A'.seek_set a pos >>= fun set ->
           if P'.compare pos set <> 0 then (
-            printf "got eof %s %s\n%!" (P'.to_string pos) (P'.to_string pos);
             return `Eof
           ) else
             let size = Int64.to_int_exn (Int64.(-) rc.end_offset rc.start_offset) in
-            printf "reading size %d\n%!" size;
             A'.reader a (Block.from_int size) >>= function
               | `Ok blk -> (* there must be only one message in the pipe *) 
                   Mailbox.With_pipe.of_string (Block.content blk) >>= fun mailbox ->
@@ -445,7 +397,7 @@ module MboxMailboxAccessor
                     ~f:(fun acc message -> return (message::acc)) >>= fun messages -> 
                       return (`Ok (List.nth_exn messages 0,rc.metadata)) (* should check
                       the length TBD *)
-              | `Eof _ -> printf "got eof\n%!"; return (`Eof)
+              | `Eof _ -> return (`Eof)
     
     let find_flag l fl = 
       List.find l ~f:(fun f -> if f = fl then true else false) <> None
@@ -464,7 +416,6 @@ module MboxMailboxAccessor
       fold handle cumulative header
      *)
     let writer tp pos blk = 
-      assert(pos = `Append);
       let (ac,a) = tp in
       let (message,metadata) = blk in
       let block = (Block.from_string (Mailbox.Message.to_string message)) in
@@ -624,13 +575,13 @@ module MboxIndexStorage
       let suffix = L'.create "" in
       U'.list_store ~start ~suffix ~exclude:"" ~init ~f:(fun acc item ->
         match item with
-        | `Folder _ -> acc
+        | `Folder _ -> return acc
         | `Storage item ->
           let str = L'.to_str item in
           if match_regex str "^\\.imaplet" then
             f acc (`Storage str)
           else
-           acc
+           return acc
       )
 
     let rec docopy accs1 accs2 f cnt =
@@ -878,7 +829,7 @@ module MboxMailboxStorage
         | `Folder (item,cnt) -> f acc (`Folder ((to_str item),cnt))
         | `Storage item -> 
           if to_str item = subscr then 
-            acc
+            return acc
           else
             f acc (`Storage (to_str item))
       )
@@ -891,8 +842,8 @@ module MboxMailboxStorage
         | `Ok blk -> 
           if f cnt blk = true then
             let (module Accessor:StorageAccessor_inst) = accs2 in
-            Accessor.StorageAccessor.writer Accessor.this pos blk >>= function
-              | `OutOfBounds | `InvalidBlock -> return ()
+            Accessor.StorageAccessor.writer Accessor.this `Append blk >>= function
+              | `InvalidBlock -> return ()
               | `Ok -> docopy accs1 accs2 f (cnt+1)
           else
             docopy accs1 accs2 f (cnt+1)
@@ -909,6 +860,71 @@ module MboxMailboxStorage
                 docopy accs1 accs2 f 1
               )
             ) >>= fun () -> return `Ok
+
+    let copy_with tp1 tp2 ~filter = 
+      exists tp1 >>= function
+        | `No | `Folder -> return `SrcNotExists
+        | `Storage -> exists tp2 >>= function
+          | `Folder | `Storage -> return `DestExists
+          | `No -> create tp2 >>= fun _ -> 
+            let (buid,sequence) = filter in
+            copy tp1 tp2 ~f:(fun seq (_,metadata) ->
+              let id = (if buid then metadata.uid else seq) in
+              (Interpreter.exec_seq sequence id)
+            )
+
+    let rec docopy accs1 accs2 f cnt =
+      let pos = `Position cnt in
+      let (module Accessor:StorageAccessor_inst) = accs1 in
+      Accessor.StorageAccessor.reader Accessor.this pos >>= function
+        | `Eof | `OutOfBounds -> return ()
+        | `Ok blk -> 
+          if f cnt blk = true then
+            let (module Accessor:StorageAccessor_inst) = accs2 in
+            Accessor.StorageAccessor.writer Accessor.this `Append blk >>= function
+              | `InvalidBlock -> return ()
+              | `Ok -> docopy accs1 accs2 f (cnt+1)
+          else
+            docopy accs1 accs2 f (cnt+1)
+
+    (* search with filter *)
+    let search_with t ~filter =
+      let (buid,keys) = filter in
+      let rec doread acc accs seq =
+        let (module Accessor : StorageAccessor_inst) = accs in
+        Accessor.StorageAccessor.reader Accessor.this (`Position seq) >>= function
+          | `Eof | `OutOfBounds -> return acc
+          | `Ok (message,metadata) -> 
+            let res = Interpreter.exec_search message.email keys metadata seq in 
+            if res then
+              let selected = if buid then metadata.uid else seq in
+              doread (selected :: acc) accs (seq + 1)
+            else
+              doread acc accs (seq + 1)
+        in
+      fold t ~exclusive:false ~init:[] ~f:(fun acc accs ->
+        doread acc accs 1
+      )
+
+    (* expunge messages with \Deleted flag 
+     * need to review, copy/move will have a
+     * new uidvalidity and uid TBD!!! 
+     *)
+    let expunge tp1 ?tmp:tp2 ~f =
+      assert(tp2 = None);
+      let tp2 = Option.value_exn tp2 in
+      copy tp1 tp2 ~f:(fun seq (_,metadata) ->
+        let retain =
+        List.find metadata.flags 
+          ~f:(fun fl -> if fl = Flags_Deleted then true else false) = None 
+        in
+        if retain then
+          true
+        else (
+          f seq;
+          false
+        )
+      ) >>= fun _ -> move tp2 tp1 
 
     (* get mailbox metadata like uidvalidity and some stats *)
     let get_mailbox_metadata tp =
@@ -986,6 +1002,10 @@ module MboxMailboxStorage
           subscr_helper tp ~flags:[Nonblock;Trunc;Wronly] ~init:() ~f:(fun () accs ->
             Deferred.List.iter l ~f:(fun mbox -> AC'.writer_line accs (Block.from_string mbox))
           ) 
+
+    let create_account tp = return `Ok (* TBD *)
+
+    let remove_account tp = return `Ok (* TBD *)
     
 
   end

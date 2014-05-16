@@ -62,6 +62,8 @@ sig
   val dirname : t -> string
   val concat : t -> t -> string
   val compare : t -> t -> int
+  val sexp_of_t : t -> Sexp.t
+  val t_of_sexp : Sexp.t -> t
 end
 
 module type Position = 
@@ -72,6 +74,8 @@ sig
   val to_string : t -> string
   val to_int64 : t -> Int64.t
   val compare : t -> t -> int
+  val sexp_of_t : t -> Sexp.t
+  val t_of_sexp : Sexp.t -> t
 end
 
 module type Permissions = 
@@ -133,7 +137,7 @@ sig
    * as list recurses into folders, the suffix is growing
    *)
   val list_store : start:loc -> suffix:loc -> ?exclude:string -> init:'a ->
-    f:('a -> [`Folder of loc * int|`Storage of loc] -> 'a) -> 'a Deferred.t
+    f:('a -> [`Folder of loc * int|`Storage of loc] -> 'a Deferred.t) -> 'a Deferred.t
   
   (* create storage if it doesn't exist *)
   val create : ?perm:perms -> loc -> [`Folder|`Storage] Deferred.t
@@ -203,6 +207,10 @@ struct
   let compare l1 l2 = 
     String.compare l1 l2
 
+  let sexp_of_t t = sexp_of_string t
+
+  let t_of_sexp s = string_of_sexp s
+
 end
 
 module BasicPosition = 
@@ -223,6 +231,10 @@ struct
   (* compare *)
   let compare p1 p2 = 
     Int64.compare (to_int64 p1) (to_int64 p2)
+
+  let sexp_of_t t = Int64.sexp_of_t t
+
+  let t_of_sexp s = Int64.t_of_sexp s
 end
 
 module BasicPermissions = 
@@ -413,10 +425,10 @@ struct
           else
             exists full_location >>= function
             | `No -> return (acc,cnt)
-            | `Storage -> return ((f acc (`Storage rel_location)),cnt + 1)
+            | `Storage -> f acc (`Storage rel_location) >>= fun acc -> return (acc,cnt + 1)
             | `Folder ->
                 list_store_ ~start ~suffix:rel_location ~init:(acc,0) ~f >>= fun (acc,cnt) -> 
-              return ((f acc (`Folder (rel_location,cnt))),cnt+1)
+                f acc (`Folder (rel_location,cnt)) >>= fun acc -> return (acc,cnt+1)
         )
     in
     list_store_ ~start ~suffix ~init:(init,0) ~f >>= fun (acc,_) -> return acc

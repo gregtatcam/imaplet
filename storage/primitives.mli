@@ -53,6 +53,8 @@ module type Location =
     val dirname : t -> string
     val concat : t -> t -> string
     val compare : t -> t -> int
+    val sexp_of_t : t -> Sexp.t
+    val t_of_sexp : Sexp.t -> t
   end
 
 module BasicLocation : Location with type t = string
@@ -66,6 +68,8 @@ module type Position =
     val to_string : t -> string
     val to_int64 : t -> Int64.t
     val compare : t -> t -> int
+    val sexp_of_t : t -> Sexp.t
+    val t_of_sexp : Sexp.t -> t
   end
 
 module BasicPosition : Position with type t = Int64.t
@@ -140,7 +144,7 @@ module type Utils =
      * as list recurses into folders, the suffix is the relative path
      *)
     val list_store : start:loc -> suffix:loc -> ?exclude:string -> init:'a ->
-      f:('a -> [`Folder of loc * int|`Storage of loc] -> 'a) -> 'a Deferred.t
+      f:('a -> [`Folder of loc * int|`Storage of loc] -> 'a Deferred.t) -> 'a Deferred.t
     
     (* create storage if it doesn't exist *)
     val create : ?perm:perms -> loc -> [`Folder|`Storage] Deferred.t

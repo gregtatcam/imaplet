@@ -18,52 +18,7 @@ open Async.Std
 open Primitives
 open Email_message
 open Mflags
-
-type mailbox_metadata = {
-  uidvalidity: string;
-  uidnext: int;
-  modseq: int64;
-  count: int;
-  unseen: int;
-  nunseen: int;
-  recent: int;
-}
-
-type mailbox_message_metadata = {
-  uid: int;
-  modseq: int64;
-  internal_date: Time.t;
-  size: int;
-  flags: mailboxFlags list;
-}
-
-type mbox_message_metadata = {
-  metadata: mailbox_message_metadata;
-  start_offset: int64;
-  end_offset: int64;
-}
-
-type mbox_index = [`Header of mailbox_metadata | `Record of mbox_message_metadata]
-
-val empty_mailbox_metadata : ?uidvalidity:string -> unit -> mailbox_metadata
-
-val empty_mailbox_message_metadata : unit -> mailbox_message_metadata
-
-val empty_mbox_message_metadata : unit -> mbox_message_metadata
-
-val update_mailbox_metadata: header:mailbox_metadata -> ?uidvalidity:string ->
-  ?uidnext:int -> ?modseq:int64 -> ?count:int -> ?unseen:int -> ?nunseen:int -> ?recent:int -> unit -> mailbox_metadata
-
-val update_mailbox_message_metadata : data:mailbox_message_metadata -> ?uid:int -> ?modseq:int64 ->
-  ?internal_date:Time.t -> ?size:int ->
-  ?flags:(mailboxFlags list) -> unit -> mailbox_message_metadata
-
-val update_mbox_message_metadata : data:mbox_message_metadata -> ?uid:int -> ?modseq:int64 ->
-  ?internal_date:Time.t -> ?size:int ->
-  ?start_offset:int64 -> ?end_offset:int64 -> ?flags:(mailboxFlags list) -> unit
-  -> mbox_message_metadata
-
-val new_uidvalidity : unit -> string
+open StorageMeta
 
 (* define storage interface for index and mailboxes, for inst:
   mbox: all messages are contained in one file (mailbox)
@@ -127,6 +82,9 @@ module type MailboxAccessor_intf =
   sig
     include StorageAccessor_intf with type blk := mailbox_data
 
+    val writer : t -> [`Append] -> mailbox_data ->
+      [`Ok|`InvalidBlock] Deferred.t
+
     val reader_metadata : t -> [`Position of int] ->
       [`Ok of mailbox_message_metadata|`Eof|`OutOfBounds] Deferred.t
 
@@ -142,7 +100,7 @@ module type StorageAccessor_inst =
 
 val build_accs_inst :
   ( module MailboxAccessor_intf with 
-    type a = 'a) -> 'a -> 
+    type a = 'a and type t = 'a) -> 'a -> 
     (module StorageAccessor_inst)
 
 module UnixMboxMailboxStorageAccessor : MailboxAccessor_intf with type t =
@@ -190,7 +148,7 @@ module type Storage_intf =
 
     (* list storage *)
     val list_store : t -> init:'a ->
-      f:('a -> [`Folder of string*int|`Storage of string] -> 'a) -> 'a Deferred.t
+      f:('a -> [`Folder of string*int|`Storage of string] -> 'a Deferred.t) -> 'a Deferred.t
 
     (* copy storage with filter *)
     val copy : t -> t -> f:(int -> blk -> bool) -> [`Ok|`SrcNotExists|`DestExists] Deferred.t
@@ -206,6 +164,15 @@ module type MailboxStorage_intf =
 
     (* read/update storage, overwriting *)
     val fold : t -> ?exclusive:bool -> init:'a -> f:('a -> (module StorageAccessor_inst) -> 'a Deferred.t) -> 'a Deferred.t
+
+    (* copy filtered *)
+    val copy_with : t -> t -> filter:(bool*States.sequence) -> [`Ok|`SrcNotExists|`DestExists] Deferred.t
+
+    (* copy filtered *)
+    val search_with : t -> filter:(bool*(States.searchKey) States.searchKeys) -> int list Deferred.t
+
+    (* expunge messages with \Deleted flag *)
+    val expunge : t -> ?tmp:t -> f:(int -> unit) -> unit Deferred.t
 
     (* update index from the mailbox *)
     val update_index : t -> [`NotExists|`Ok] Deferred.t
@@ -224,6 +191,12 @@ module type MailboxStorage_intf =
 
     (* unsubscribe the mailbox *)
     val unsubscribe : t -> unit Deferred.t
+
+    (* create user account *)
+    val create_account : t -> [`Ok|`Exists] Deferred.t
+
+    (* remove user account *)
+    val remove_account : t -> [`Ok|`DoesntExist] Deferred.t
   end
 
 module type Storage_inst = 
@@ -250,4 +223,12 @@ val build_strg_inst :
     type loc = 'a and 
     type param = 'b and
     type accs = 'c) ->
+  ('a*'a*'a*'b) -> ?tp2:'a*'a*'a*'b -> unit -> (module Storage_inst)
+(*
+val build_strg_inst :
+  (module MailboxStorage_intf with 
+    type loc = 'a and 
+    type param = 'b and
+    type accs = 'c) ->
   ('a*'a*'a*'b) -> ?tp2:'a*'a*'a*'b -> unit -> (module Storage_inst with type MailboxStorage.accs = 'c )
+  *)

@@ -131,7 +131,7 @@
 %{
 open States
 open Mflags
-let debug format = Printf.printf format (**(fun format a -> ())**)
+let debug format = Printf.printf format (*(fun format a -> ())*)
 %}
 
 %start <Contexts.client_request> request

@@ -15,6 +15,7 @@
  *)
 open Core.Std
 open Async.Std
+open Async_unix
 
 (**
  * listen on port/host
@@ -30,10 +31,18 @@ let listen_on port host =
     ~address:(`Inet (addr,port))
     ~listening_on:(fun _ -> port)
 
+(* initialize storage *)
+let init_storage () =
+  let open IrminSrvIpc in
+  match Configuration.get_store () with
+  | `Mbox | `Mailbox -> return ()
+  | `Irminsule -> launch_irmin_server ()
+
 (**
  * start accepting connections
 **)
 let create ~port ~host =
+  init_storage () >>= fun () ->
   Tcp.Server.create
   ~on_handler_error:`Raise
   (listen_on port host)

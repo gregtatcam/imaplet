@@ -18,13 +18,13 @@ open Mflags
 
 type literal = Literal of int | LiteralPlus of int
 
-type seq_number = Wild | Number of int
+type seq_number = Wild | Number of int with sexp
 
 type seq_set =
   | SeqNumber of seq_number
-  | SeqRange of seq_number * seq_number 
+  | SeqRange of seq_number * seq_number with sexp
 
-type sequence = seq_set list
+type sequence = seq_set list with sexp
 
 type responseCode = 
   | RespCode_Alert
@@ -93,13 +93,15 @@ type searchKey =
   | Search_Undraft (** messages with \Draft flag not set **)
   | Search_Unflagged (** messages with \Flagged flag not set **)
   | Search_Unkeyword of string (** message that do not have the specified keyword flag set **)
-  | Search_Unseen (** messages with \Seen flag not set **)
+  | Search_Unseen (** messages with \Seen flag not set **) 
+  with sexp
 
 type 'a searchKeys =
   | Key of 'a
   | KeyList of 'a searchKeys list
   | OrKey of 'a searchKeys * 'a searchKeys
   | NotKey of 'a searchKeys 
+  with sexp
   
 type fetchMacro = 
   | Fetch_All

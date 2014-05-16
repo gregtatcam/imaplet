@@ -18,7 +18,7 @@ open Email_message
 open States
 open Regex
 open Mflags
-open Storage
+open StorageMeta
 
 exception InvalidSequence
 
@@ -36,6 +36,10 @@ type bodystr_fields = {
   bsize: string;
   blines: string;
   bdisp: string}
+
+let rec raw_content email =
+  let hdr_size = String.length (String_monoid.to_string (Header.to_string_monoid (Email.header email))) in
+  String.slice (Email.to_string email) hdr_size 0
 
 let flags_to_string flags =
   List.fold flags ~init:"" ~f:(fun acc fl -> if acc = "" then fl_to_str fl else
@@ -147,7 +151,7 @@ let should_include (email:Email.t) (record:mailbox_message_metadata) : bool =
  **)
 let prune_headers_list (headers:Header.t) : (string*string) list =
   fold_email_headers ~regex:true ~excl:(map_of_alist ["status";"x-status";"x-keywords";
-  "content-length";"x-imapbase";"x-imap";"x-hid"]) headers
+  "content-length";"x-imapbase";"x-imap";"x-uid"]) headers
   ~init:[]
   ~f:(fun acc (name,value) -> (name,value) :: acc)
 
@@ -159,10 +163,13 @@ let prune_headers (headers:Header.t) : (Header.t) =
   Header.of_rev_list headers
 
 let email_content_to_str (email:Email.t) : (string * int )=
+  (*
   match Email.raw_content email with
-  | None -> ("",0)
+  | None -> printf "####### raw_content is none\n%!"; ("",0)
   | Some cont -> 
       let str = (Octet_stream.to_string cont) in (str,String.length str)
+  *)
+  let str = raw_content email in (str, String.length str)
 
 let email_headers_to_str ?(incl=String.Map.empty) ?(excl=String.Map.empty)
 ?(regex=false) (headers:Header.t) : (string*int) =
@@ -181,7 +188,7 @@ let email_headers_to_str ?(incl=String.Map.empty) ?(excl=String.Map.empty)
 
 let email_headers_pruned_to_str (headers:Header.t) : (string*int) =
  email_headers_to_str ~regex:true ~excl:(map_of_alist ["status";"x-status";"x-keywords";
-  "content-length";"x-imapbase";"x-imap";"x-hid"]) headers
+  "content-length";"x-imapbase";"x-imap";"x-uid"]) headers
 
 (** get crlf'ed message and the message size **)
 let email_to_str (email:Email.t) : (string*int) =
@@ -535,10 +542,12 @@ let exec_fetch_header ?(incl=String.Map.empty) ?(excl=String.Map.empty) ?(regex=
   let str,_ = email_headers_to_str ~incl ~excl ~regex (Email.header email) in str
 
 let exec_fetch_text (email:Email.t) : string =
-  let cont = Email.raw_content email in
+  (*let cont = Email.raw_content email in
   match cont with 
-  | None -> ""
+  | None -> printf "####### raw_content is none\n%!"; ""
   | Some cont -> Octet_stream.to_string cont
+  *)
+  raw_content email
 
 (** build body sectin reply string **)
 let body_template_str (prefix:string) (content:string) (sec:sectionPart)

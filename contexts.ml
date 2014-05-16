@@ -47,4 +47,5 @@ type ipc_context = {
   logout_ctx : unit Async_condition.t;
   net_r : Reader.t;
   net_w : Writer.t;
+  str_rw : (Reader.t * Writer.t) option;
 }

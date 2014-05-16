@@ -13,40 +13,14 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
-open Core.Std
-open Async.Std
+(* listen queue *)
+val backlog : int
 
-(** do daemon steps if needed **)
+(* port to listen on *)
+val irmin_server_port : int
 
-(**
- * handle configuration options
-**)
-let handle_config = function
-| Some _ -> () (** TBD **)
-| None -> ()
+(* local path *)
+val store_path : string
 
-(**
- * handle command line
-**)
-let command =
-  Command.basic
-    ~summary:"run imaplet server"
-      Command.Spec.(
-      empty
-      +> flag "-c" (optional file) ~doc:"configuration file(optional)"
-      +> flag "-p" (optional_with_default 143 int) ~doc:"bind port(optional)"
-      +> flag "-a" (optional string) ~doc:"bind address(optional)"
-      )
-      (fun c p h () -> 
-        handle_config c; 
-        upon (Server.create ~port:p ~host:h) (fun _ -> ());
-        never_returns (Scheduler.go()))
-
-(**
- * start the server
-**)
-let () = 
-  try
-    Command.run command
-  with Exit ->
-    Printexc.print_backtrace stderr
+(* version *)
+val version : string
