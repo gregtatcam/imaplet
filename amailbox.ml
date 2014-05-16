@@ -446,16 +446,15 @@ let fetch (mbx:t) (resp_writer:(string->unit)) (sequence:States.sequence) (fetch
       Mailbox.MailboxStorage.fold Mailbox.this ~exclusive:true ~init:() ~f:(fun () accs ->
         let rec doread accs seq =
           let (module Accessor : StorageAccessor_inst) = accs in
-          Accessor.StorageAccessor.reader Accessor.this (`Position seq) >>= function
+          let filter = Some (States.Key (States.Search_SeqSet sequence)) in
+          Accessor.StorageAccessor.reader Accessor.this ?filter (`Position seq) >>= function
             | `Eof -> return ()
+            | `NotFound -> doread accs (seq + 1)
             | `Ok (message,metadata) -> 
+              printf "============= %s" (Email_message.Mailbox.Message.to_string message);
               let res = Interpreter.exec_fetch seq sequence message metadata fetchattr buid in
               match res with
-              | Some res -> 
-                  (
-                    printf "%s" (Email_message.Mailbox.Message.to_string message);
-                    resp_writer res; doread accs (seq + 1)
-                  )
+              | Some res -> resp_writer res; doread accs (seq + 1)
               | None -> doread accs (seq + 1)
         in
         doread accs 1

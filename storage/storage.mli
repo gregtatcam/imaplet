@@ -77,6 +77,9 @@ module type MailboxAccessor_intf =
   sig
     include StorageAccessor_intf with type blk := mailbox_data
 
+    val reader : t -> ?filter:(States.searchKey) States.searchKeys -> 
+      [`Position of int] -> [`Ok of mailbox_data|`Eof|`NotFound] Deferred.t
+
     val writer : t -> [`Append] -> mailbox_data -> [`Ok] Deferred.t
 
     val reader_metadata : t -> [`Position of int] ->

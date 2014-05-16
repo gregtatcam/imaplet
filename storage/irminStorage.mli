@@ -34,7 +34,8 @@ module type IrminMailbox_intf =
     val remove : t -> string -> unit Lwt.t
 
     (* read message/metadata *)
-    val read_message : t -> int -> [`Ok of (Mailbox.Message.t * mailbox_message_metadata)| `NotFound] Lwt.t
+    val read_message : t -> ?filter:(States.searchKey) States.searchKeys -> int -> [`Ok of (Mailbox.Message.t *
+    mailbox_message_metadata)| `NotFound|`Eof] Lwt.t
 
     (* read metadata only *)
     val read_metadata : t -> int -> [`Ok of mailbox_message_metadata| `NotFound] Lwt.t

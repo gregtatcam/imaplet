@@ -85,9 +85,9 @@ module MakeIrminsuleAccessor
 
     (* read block from the storage at requested position,
      *)
-    let reader tp pos =
+    let reader tp ?filter pos =
       let (u,l,r,w) = tp in
-      request r w (`Reader (u,L'.to_str l,pos)) >>= fun resp ->
+      request r w (`Reader (u,L'.to_str l,pos,filter)) >>= fun resp ->
       match resp with
       | `Reader data -> return data
       | _ -> raise_with "reader" resp 

@@ -64,6 +64,9 @@ module type MailboxAccessor_intf =
   sig
     include StorageAccessor_intf with type blk := mailbox_data
 
+    val reader : t -> ?filter:(States.searchKey) States.searchKeys -> 
+      [`Position of int] -> [`Ok of mailbox_data|`Eof|`NotFound] Deferred.t
+
     val writer : t -> [`Append] -> mailbox_data -> [`Ok] Deferred.t
 
     val reader_metadata : t -> [`Position of int] ->
@@ -370,7 +373,9 @@ module MboxMailboxAccessor
      * First read message offset from index and then read
      * the message; AC' is index accessor, A is mailbox accessor
      *)
-    let reader tp pos = 
+    let reader tp ?filter pos = 
+      let open Interpreter in
+      let seq = match pos with `Position pos -> pos in
       let (ac,a) = tp in
       upd_pos tp pos >>= fun pos ->
       IDXAC'.reader_record ac pos >>= function
@@ -388,8 +393,13 @@ module MboxMailboxAccessor
                     Pipe.fold mailbox (* is there a better way to get the message? TBD *)
                     ~init:[]
                     ~f:(fun acc message -> return (message::acc)) >>= fun messages -> 
-                      return (`Ok (List.nth_exn messages 0,rc.metadata)) (* should check
-                      the length TBD *)
+                      let message = List.nth_exn messages 0 in
+                      let metadata = rc.metadata in
+                      if filter = None ||
+                          exec_search message.email (Option.value_exn filter) metadata seq then
+                        return (`Ok (message,metadata))
+                      else
+                        return `NotFound
               | `Eof _ -> return (`Eof)
     
     let find_flag l fl = 

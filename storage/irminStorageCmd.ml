@@ -31,7 +31,7 @@ type irminRequest = [
   | `List_store of string*string
   | `Mailbox_metadata of string*string
   | `Move of string*string * string
-  | `Reader of string*string * [`Position of int]
+  | `Reader of string*string * [`Position of int]*(States.searchKey) States.searchKeys option
   | `Reader_metadata of string*string*([`Position of int])
   | `Remove_account of string
   | `Rebuild_index of string*string
@@ -56,7 +56,7 @@ type irminResponse = [
   | `List_store of ([`Folder of string*int|`Storage of string] list)
   | `Mailbox_metadata of mailbox_metadata
   | `Move 
-  | `Reader of ([`Ok of Mailbox.Message.t*mailbox_message_metadata|`Eof])
+  | `Reader of ([`Ok of Mailbox.Message.t*mailbox_message_metadata|`Eof|`NotFound])
   | `Reader_metadata of ([`Ok of mailbox_message_metadata|`Eof])
   | `Remove_account of [`Ok|`DoesntExist]
   | `Rebuild_index

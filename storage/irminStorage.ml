@@ -379,7 +379,8 @@ module type IrminMailbox_intf =
     val remove : t -> string -> unit Lwt.t
 
     (* read message/metadata *)
-    val read_message : t -> int -> [`Ok of (Mailbox.Message.t * mailbox_message_metadata)| `NotFound] Lwt.t
+    val read_message : t -> ?filter:(States.searchKey) States.searchKeys -> int -> [`Ok of (Mailbox.Message.t *
+    mailbox_message_metadata)| `NotFound|`Eof] Lwt.t
 
     (* read metadata only *)
     val read_metadata : t -> int -> [`Ok of mailbox_message_metadata| `NotFound] Lwt.t
@@ -505,14 +506,23 @@ module IrminMailbox =
         ~uidnextup:0 ~up:(-1) >>= fun _ -> return ()
 
     (* read message *)
-    let read_message key seq =
+    let read_message key ?filter seq =
+      let open Interpreter in
       let index_key = MailboxIndex.create key in
       MailboxIndex.get_uid index_key seq >>= function
-      | `NotFound -> return `NotFound
+      | `NotFound -> return `Eof
       | `Ok uid ->
         Printf.printf "found uid %s for seq %d\n%!" uid seq;
         let msg_key = MailboxMessage.create key uid in
-        MailboxMessage.read_message_and_meta msg_key 
+        MailboxMessage.read_message_and_meta msg_key >>= function
+        | `NotFound -> return `NotFound (* probably get if it was deleted TBD *)
+        | `Ok (message,meta) ->
+          if filter = None ||
+              exec_search message.email (Core.Std.Option.value_exn filter) meta seq then (
+            return (`Ok (message,meta))
+          ) else (
+            return `NotFound
+          )
 
     (* read metadata only *)
     let read_metadata key seq =
@@ -658,7 +668,7 @@ module IrminMailbox =
         read_message t seq >>= function
         | `NotFound -> return acc
         | `Ok (message,meta) ->
-          let res = Interpreter.exec_search message.email keys meta seq in 
+          let res = exec_search message.email keys meta seq in 
           if res then
             let selected = if buid then meta.uid else seq in
             doread (selected :: acc) (seq + 1)

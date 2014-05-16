@@ -36,13 +36,14 @@ let create_socket () =
 let get_pos = function
   | `Position pos -> pos
 
-let handle_reader user loc pos = 
+let handle_reader user loc filter pos = 
   Printf.printf "------irminStorageSrv handle_reader %s %s %d\n%!" user loc (get_pos pos);
   let mbox = IrminMailbox.create user loc in
-  IrminMailbox.read_message mbox (get_pos pos) >>= function
+  IrminMailbox.read_message mbox ?filter (get_pos pos) >>= function
   | `Ok (msg, meta) ->
       return (`Reader (`Ok (msg, meta)))
-  | `NotFound -> return (`Reader `Eof)
+  | `NotFound -> return (`Reader `NotFound)
+  | `Eof -> return (`Reader `Eof)
 
 let handle_reader_metadata user loc pos =
   Printf.printf "------irminStorageSrv handle_reader_metadata %s %s %d\n%!" user loc (get_pos pos);
@@ -179,7 +180,7 @@ let process_request outchan msg =
   | `List_store (user, loc) -> handle_list_store user loc
   | `Mailbox_metadata (user, loc) -> handle_get_metadata user loc
   | `Move (user, loc1, loc2) -> handle_move user loc1 loc2
-  | `Reader (user,loc,pos) -> handle_reader user loc pos
+  | `Reader (user,loc,pos,filter) -> handle_reader user loc filter pos 
   | `Reader_metadata (user,loc,pos) -> handle_reader_metadata user loc pos
   | `Remove_account (user) -> handle_remove_account user 
   | `Rebuild_index (user, loc) -> handle_rebuild_index user loc
