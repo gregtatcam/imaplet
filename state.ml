@@ -397,7 +397,7 @@ let handle_authenticated request contexts ipc_ctx context = match request with
   | Cmd_Done -> handle_done ipc_ctx
 
 let handle_selected request contexts ipc_ctx context = match request with
-  | Cmd_Check -> return_resp_ctx None (Resp_Bad(None,"")) None
+  | Cmd_Check -> return_resp_ctx None (Resp_Ok(None, "CHECK completed")) None
   | Cmd_Close -> handle_close ipc_ctx.net_w contexts context
   | Cmd_Expunge -> handle_expunge ipc_ctx.net_w contexts
   | Cmd_Search (charset,search, buid) -> handle_search ipc_ctx.net_w charset search buid contexts
