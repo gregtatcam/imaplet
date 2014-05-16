@@ -100,8 +100,7 @@ module MakeIrminsuleAccessor
       | `Reader_metadata data -> return data
       | _ -> raise_with"reader_metadata" resp
 
-     (* Can only do append so Position is not applicable, nor is the 
-     * header. Consequently OutOfBounds|InvalidBlock is n/a TBD
+     (* Can only do append so Position is not applicable, nor is the header
       need to write back index header or accumulate header and have the
       fold handle cumulative header
      *)
@@ -233,12 +232,11 @@ module MakeIrminsuleStorage
           let (module AccessorDst:StorageAccessor_inst) = accs_dst in
           let rec docopy f pos =
             AccessorSrc.StorageAccessor.reader AccessorSrc.this (`Position pos) >>= function
-            | `Eof | `OutOfBounds -> return ()
+            | `Eof -> return ()
             | `Ok blk -> 
               if f pos blk = true then
-                AccessorDst.StorageAccessor.writer AccessorDst.this `Append blk >>= function
-                  | `InvalidBlock -> return ()
-                  | `Ok -> docopy f (pos+1)
+                AccessorDst.StorageAccessor.writer AccessorDst.this `Append blk >>= fun _ ->
+                docopy f (pos+1)
               else
                 docopy f (pos+1)
           in

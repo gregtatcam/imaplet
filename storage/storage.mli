@@ -47,15 +47,11 @@ module type StorageAccessor_intf =
      * if position is none then sequential access,
      * position 0 is the header if applicable
      *)
-    val reader : t -> [`Position of int] -> 
-      [`Ok of blk|`Eof|`OutOfBounds] Deferred.t
+    val reader : t -> [`Position of int] -> [`Ok of blk|`Eof] Deferred.t
 
     (* write block to the storage at requested position, 
-     * If `OutOfBounds then requested position exceeds storage size
-     * If `InvalidBlock then the block size is invalid
      *)
-    val writer : t -> [`Append|`Position of int] -> blk ->
-      [`Ok|`OutOfBounds|`InvalidBlock] Deferred.t
+    val writer : t -> [`Append|`Position of int] -> blk -> [`Ok|`Eof] Deferred.t
   end
 
 module type MboxIndexStorageAccessor_intf =
@@ -65,12 +61,11 @@ module type MboxIndexStorageAccessor_intf =
     val reader_header : t -> mailbox_metadata Deferred.t
 
     val reader_record : t -> [`Position of int] -> 
-      [`Ok of mbox_message_metadata|`Eof|`OutOfBounds] Deferred.t
+      [`Ok of mbox_message_metadata|`Eof] Deferred.t
 
     val writer_header : t -> mailbox_metadata -> unit Deferred.t
 
-    val writer_record : t -> [`Append|`Position of int] -> mbox_message_metadata ->
-      [`Ok|`OutOfBounds] Deferred.t
+    val writer_record : t -> [`Append|`Position of int] -> mbox_message_metadata -> [`Ok|`Eof] Deferred.t
   end
 
 module UnixMboxIndexStorageAccessor : MboxIndexStorageAccessor_intf with type t =
@@ -82,14 +77,13 @@ module type MailboxAccessor_intf =
   sig
     include StorageAccessor_intf with type blk := mailbox_data
 
-    val writer : t -> [`Append] -> mailbox_data ->
-      [`Ok|`InvalidBlock] Deferred.t
+    val writer : t -> [`Append] -> mailbox_data -> [`Ok] Deferred.t
 
     val reader_metadata : t -> [`Position of int] ->
-      [`Ok of mailbox_message_metadata|`Eof|`OutOfBounds] Deferred.t
+      [`Ok of mailbox_message_metadata|`Eof] Deferred.t
 
     val writer_metadata : t -> mailbox_message_metadata -> [`Position of int] ->
-      [`Ok |`OutOfBounds] Deferred.t
+      [`Ok |`Eof] Deferred.t
   end
 
 module type StorageAccessor_inst = 

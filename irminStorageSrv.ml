@@ -42,14 +42,14 @@ let handle_reader user loc pos =
   IrminMailbox.read_message mbox (get_pos pos) >>= function
   | `Ok (msg, meta) ->
       return (`Reader (`Ok (msg, meta)))
-  | `NotFound -> return (`Reader `OutOfBounds)
+  | `NotFound -> return (`Reader `Eof)
 
 let handle_reader_metadata user loc pos =
   Printf.printf "------irminStorageSrv handle_reader_metadata %s %s %d\n%!" user loc (get_pos pos);
   let mbox = IrminMailbox.create user loc in
   IrminMailbox.read_metadata mbox (get_pos pos) >>= function
   | `Ok meta -> return (`Reader_metadata (`Ok meta))
-  | `NotFound -> return (`Reader_metadata `OutOfBounds)
+  | `NotFound -> return (`Reader_metadata `Eof)
 
 let handle_writer user loc message metadata =
   Printf.printf "------irminStorageSrv handle_writer %s %s \n%!" user loc;
@@ -62,7 +62,7 @@ let handle_writer_metadata user loc pos metadata =
   let mbox = IrminMailbox.create user loc in
   IrminMailbox.update_metadata mbox (get_pos pos) metadata >>= function
     | `Ok -> return (`Writer_metadata `Ok)
-    | `NotFound -> return (`Writer_metadata `OutOfBounds)
+    | `NotFound -> return (`Writer_metadata `Eof)
 
 let handle_exists user loc =
   Printf.printf "------irminStorageSrv handle_exists %s %s\n%!" user loc;

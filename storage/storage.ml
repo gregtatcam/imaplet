@@ -34,15 +34,14 @@ module type StorageAccessor_intf =
      * position 0 is the header if applicable `Header|`Record of int > 0
      *)
     val reader : t -> [`Position of int] -> 
-      [`Ok of blk|`Eof|`OutOfBounds] Deferred.t
+      [`Ok of blk|`Eof] Deferred.t
 
     (* write block to the storage at requested position, 
-     * If `OutOfBounds then requested position exceeds storage size
-     * If `InvalidBlock then the block size is invalid `Header of hdr |`Record
+     * If `Eof then requested position exceeds storage size
      * of rec * int
      *)
     val writer : t -> [`Append|`Position of int] -> blk ->
-      [`Ok|`OutOfBounds|`InvalidBlock] Deferred.t
+      [`Ok|`Eof] Deferred.t
   end
 
 module type MboxIndexStorageAccessor_intf =
@@ -52,12 +51,11 @@ module type MboxIndexStorageAccessor_intf =
     val reader_header : t -> mailbox_metadata Deferred.t
 
     val reader_record : t -> [`Position of int] -> 
-      [`Ok of mbox_message_metadata|`Eof|`OutOfBounds] Deferred.t
+      [`Ok of mbox_message_metadata|`Eof] Deferred.t
 
     val writer_header : t -> mailbox_metadata -> unit Deferred.t
 
-    val writer_record : t -> [`Append|`Position of int] -> mbox_message_metadata ->
-      [`Ok|`OutOfBounds] Deferred.t
+    val writer_record : t -> [`Append|`Position of int] -> mbox_message_metadata -> [`Ok|`Eof] Deferred.t
   end
 
 type mailbox_data = Mailbox.Message.t * mailbox_message_metadata
@@ -66,14 +64,12 @@ module type MailboxAccessor_intf =
   sig
     include StorageAccessor_intf with type blk := mailbox_data
 
-    val writer : t -> [`Append] -> mailbox_data ->
-      [`Ok|`InvalidBlock] Deferred.t
+    val writer : t -> [`Append] -> mailbox_data -> [`Ok] Deferred.t
 
     val reader_metadata : t -> [`Position of int] ->
-      [`Ok of mailbox_message_metadata|`Eof|`OutOfBounds] Deferred.t
+      [`Ok of mailbox_message_metadata|`Eof] Deferred.t
 
-    val writer_metadata : t -> mailbox_message_metadata -> [`Position of int] ->
-      [`Ok |`OutOfBounds] Deferred.t
+    val writer_metadata : t -> mailbox_message_metadata -> [`Position of int] -> [`Ok|`Eof] Deferred.t
   end
 
 module type StorageAccessor_inst = 
@@ -265,7 +261,7 @@ module MboxIndexAccessor
           if (P'.to_int64 set_pos) = pos then (
             return (`Ok rs)
           ) else (
-            return `OutOfBounds
+            return `Eof
           )
         )
       | `Append -> A'.seek_end d >>= fun pos -> 
@@ -285,12 +281,12 @@ module MboxIndexAccessor
             | `Ok blk -> return (`Ok (Marshal.from_string (Block.content blk) 0))
             | `Eof i -> return `Eof
           )
-        | `OutOfBounds -> return `OutOfBounds
+        | `Eof -> return `Eof
 
     (* read index header *)
     let reader_header tp =
       reader tp (`Position 0) >>= function
-        | `Eof | `OutOfBounds -> assert(false)
+        | `Eof -> assert(false)
         | `Ok hdr -> match hdr with
           | `Record _ -> assert(false)
           | `Header hdr -> return hdr
@@ -300,7 +296,6 @@ module MboxIndexAccessor
       assert(pos <> (`Position 0));
       reader tp pos >>= function
         | `Eof -> return `Eof
-        | `OutOfBounds -> return `OutOfBounds
         | `Ok hdr -> match hdr with
           | `Header _ -> assert(false)
           | `Record rc -> return (`Ok rc) (* this builds without `Ok!!! and crashes *)
@@ -313,23 +308,22 @@ module MboxIndexAccessor
             let marshalled = Marshal.to_string blk [Marshal.Compat_32] in
             let marsh_len = String.length marshalled in
             if marsh_len > sz then
-              return `InvalidBlock
+              assert(false)
             else
               let blk = Block.from_string (String.concat [marshalled;String.create (sz - marsh_len)]) in
              A'.writer d blk >>= fun _ -> return `Ok
-        | `OutOfBounds -> return `OutOfBounds
+        | `Eof -> return `Eof
         
     (* write index header *)
     let writer_header tp hdr =
       writer tp (`Position 0) (`Header hdr) >>= function
-        | `OutOfBounds | `InvalidBlock -> assert(false)
+        | `Eof -> assert(false)
         | `Ok -> return ()
         
     (* write index record *)
     let writer_record tp pos rc =
       writer tp pos (`Record rc) >>= function
-        | `InvalidBlock -> assert(false)
-        | `OutOfBounds -> return `OutOfBounds
+        | `Eof -> return `Eof
         | `Ok -> return `Ok
 
   end
@@ -381,7 +375,6 @@ module MboxMailboxAccessor
       upd_pos tp pos >>= fun pos ->
       IDXAC'.reader_record ac pos >>= function
       | `Eof -> return `Eof
-      | `OutOfBounds -> return `OutOfBounds
       | `Ok rc -> 
         let pos = P'.of_int64 rc.start_offset in
         A'.seek_set a pos >>= fun set ->
@@ -407,11 +400,9 @@ module MboxMailboxAccessor
       let (ac,_) = tp in
       IDXAC'.reader_record ac pos >>= function 
         | `Eof -> return `Eof
-        | `OutOfBounds -> return `OutOfBounds
         | `Ok msg -> return (`Ok msg.metadata)
 
-     (* Can only do append so Position is not applicable, nor is the 
-     * header. Consequently OutOfBounds|InvalidBlock is n/a TBD
+     (* Can only do append so Position is not applicable, nor is the header. 
       need to write back index header or accumulate header and have the
       fold handle cumulative header
      *)
@@ -454,8 +445,7 @@ module MboxMailboxAccessor
       (* read index header *)
       IDXAC'.reader_header ac >>= fun hdr -> 
         IDXAC'.reader_record ac (`Position pos) >>= function
-          | `Eof -> return `OutOfBounds
-          | `OutOfBounds -> return `OutOfBounds
+          | `Eof -> return `Eof
           | `Ok msg ->
             (* only updating flags for now *)
             let metadata = { msg.metadata with flags = metadata.flags } in
@@ -553,7 +543,7 @@ module MboxIndexStorage
           fold_internal tp ~exclusive:true ~perm ~flags ~init:() ~f:(fun () accs ->
             let hdr = empty_mailbox_metadata ~uidvalidity:(new_uidvalidity()) () in
             IDXAC'.writer accs (`Position 0) (`Header hdr) >>= function
-              | `InvalidBlock | `OutOfBounds -> assert(false)
+              | `Eof -> assert(false)
               | `Ok -> return ()
           ) >>= fun () -> return `Storage
 
@@ -587,11 +577,11 @@ module MboxIndexStorage
     let rec docopy accs1 accs2 f cnt =
       let pos = `Position cnt in
       IDXAC'.reader accs1 pos >>= function
-        | `Eof | `OutOfBounds -> return ()
+        | `Eof -> return ()
         | `Ok blk -> 
           if f cnt blk = true then
             IDXAC'.writer accs2 pos blk >>= function
-              | `OutOfBounds | `InvalidBlock -> return ()
+              | `Eof -> return ()
               | `Ok -> docopy accs1 accs2 f (cnt+1)
           else
             docopy accs1 accs2 f (cnt+1)
@@ -705,7 +695,7 @@ module MboxMailboxStorage
           else
             (* read the last record in the index *)
             IDXAC'.reader_record idx_accs (`Position hdr.count) >>= function
-              | `Eof | `OutOfBounds -> assert(false)
+              | `Eof -> assert(false)
               | `Ok rc -> return rc.end_offset
           end >>= fun new_msg_offset -> (* offset of a new message into the raw
           mailbox *)
@@ -759,27 +749,25 @@ module MboxMailboxStorage
                   let flags = if from_daemon then [Flags_Template] else [] in
                   let idx_record = update_mbox_message_metadata ~data:idx_record
                   ~start_offset ~end_offset ~size ~internal_date ~uid ~flags () in
-                  IDXAC'.writer_record idx_accs `Append idx_record >>= function
-                    | `OutOfBounds -> assert(false)
-                    | `Ok ->
-                      if from_daemon then
-                        return (hdr,end_offset)
-                      else (
-                        let nunseen = hdr.nunseen + 1 in
-                        let unseen =
-                         if hdr.unseen = 0 then
-                           hdr.count
-                         else
-                           hdr.unseen
-                        in
-                        let recent = hdr.recent + 1 in
-                        let count = hdr.count + 1 in
-                        let uidnext = hdr.uidnext + 1 in
-                        let hdr = update_mailbox_metadata ~header:hdr ~nunseen ~unseen
-                        ~recent ~count ~uidnext ()
-                        in
-                        IDXAC'.writer_header idx_accs hdr >>= fun () -> return (hdr,end_offset) 
-                      )
+                  IDXAC'.writer_record idx_accs `Append idx_record >>= fun _ ->
+                   if from_daemon then
+                     return (hdr,end_offset)
+                   else (
+                     let nunseen = hdr.nunseen + 1 in
+                     let unseen =
+                      if hdr.unseen = 0 then
+                        hdr.count
+                      else
+                        hdr.unseen
+                     in
+                     let recent = hdr.recent + 1 in
+                     let count = hdr.count + 1 in
+                     let uidnext = hdr.uidnext + 1 in
+                     let hdr = update_mailbox_metadata ~header:hdr ~nunseen ~unseen
+                     ~recent ~count ~uidnext ()
+                     in
+                     IDXAC'.writer_header idx_accs hdr >>= fun () -> return (hdr,end_offset) 
+                   )
                 ) >>= fun _ -> return ()
           )
       ) >>= fun () -> return `Ok
@@ -838,12 +826,11 @@ module MboxMailboxStorage
       let pos = `Position cnt in
       let (module Accessor:StorageAccessor_inst) = accs1 in
       Accessor.StorageAccessor.reader Accessor.this pos >>= function
-        | `Eof | `OutOfBounds -> return ()
+        | `Eof -> return ()
         | `Ok blk -> 
           if f cnt blk = true then
             let (module Accessor:StorageAccessor_inst) = accs2 in
             Accessor.StorageAccessor.writer Accessor.this `Append blk >>= function
-              | `InvalidBlock -> return ()
               | `Ok -> docopy accs1 accs2 f (cnt+1)
           else
             docopy accs1 accs2 f (cnt+1)
@@ -877,12 +864,11 @@ module MboxMailboxStorage
       let pos = `Position cnt in
       let (module Accessor:StorageAccessor_inst) = accs1 in
       Accessor.StorageAccessor.reader Accessor.this pos >>= function
-        | `Eof | `OutOfBounds -> return ()
+        | `Eof -> return ()
         | `Ok blk -> 
           if f cnt blk = true then
             let (module Accessor:StorageAccessor_inst) = accs2 in
             Accessor.StorageAccessor.writer Accessor.this `Append blk >>= function
-              | `InvalidBlock -> return ()
               | `Ok -> docopy accs1 accs2 f (cnt+1)
           else
             docopy accs1 accs2 f (cnt+1)
@@ -893,7 +879,7 @@ module MboxMailboxStorage
       let rec doread acc accs seq =
         let (module Accessor : StorageAccessor_inst) = accs in
         Accessor.StorageAccessor.reader Accessor.this (`Position seq) >>= function
-          | `Eof | `OutOfBounds -> return acc
+          | `Eof -> return acc
           | `Ok (message,metadata) -> 
             let res = Interpreter.exec_search message.email keys metadata seq in 
             if res then

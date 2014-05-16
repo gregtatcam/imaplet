@@ -99,7 +99,6 @@ let command =
               Accessor.StorageAccessor.writer Accessor.this `Append
               (message,empty_mailbox_message_metadata()) >>= function
               | `Ok -> printf "added message to the mailbox %s\n%!" irmin_mailbox; return ()
-              | `InvalidBlock -> printf "failed to add message to the mailbox %s\n%!" irmin_mailbox; return ()
           )
         ) >>= fun _ -> return ()
       )

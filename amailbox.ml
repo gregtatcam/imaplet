@@ -447,7 +447,7 @@ let fetch (mbx:t) (resp_writer:(string->unit)) (sequence:States.sequence) (fetch
         let rec doread accs seq =
           let (module Accessor : StorageAccessor_inst) = accs in
           Accessor.StorageAccessor.reader Accessor.this (`Position seq) >>= function
-            | `Eof|`OutOfBounds -> return ()
+            | `Eof -> return ()
             | `Ok (message,metadata) -> 
               let res = Interpreter.exec_fetch seq sequence message metadata fetchattr buid in
               match res with
@@ -476,7 +476,7 @@ let store (mbx:t) (resp_writer:(string->unit)) (sequence:States.sequence)
         let rec doread accs seq =
           let (module Accessor : StorageAccessor_inst) = accs in
           Accessor.StorageAccessor.reader_metadata Accessor.this (`Position seq) >>= function
-            | `Eof | `OutOfBounds -> return ()
+            | `Eof -> return ()
             | `Ok metadata -> 
               let metadata =
               match Interpreter.exec_store metadata seq sequence storeattr flagsval buid with
@@ -486,7 +486,7 @@ let store (mbx:t) (resp_writer:(string->unit)) (sequence:States.sequence)
               in
               Accessor.StorageAccessor.writer_metadata Accessor.this metadata 
               (`Position seq) >>= function
-                | `OutOfBounds -> return ()
+                | `Eof -> return ()
                 | `Ok -> doread accs (seq + 1)
         in
         doread accs 1
