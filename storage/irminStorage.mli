@@ -53,7 +53,7 @@ module type IrminMailbox_intf =
     val move_mailbox : t -> t -> unit Lwt.t
 
     (* copy the mailbox *)
-    val copy_mailbox : t -> t -> filter:(bool*States.sequence) -> [`Ok|`SrcNotExists|`DestExists] Lwt.t
+    val copy_mailbox : t -> t -> filter:(bool*States.sequence) -> [`Ok|`SrcNotExists|`DestNotExists] Lwt.t
 
     (* expunge deleted messages *)
     val expunge : t -> unit Lwt.t

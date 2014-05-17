@@ -148,7 +148,7 @@ module type Storage_intf =
       f:('a -> [`Folder of string*int|`Storage of string] -> 'a Deferred.t) -> 'a Deferred.t
 
     (* copy storage with filter *)
-    val copy : t -> t -> f:(int -> blk -> bool) -> [`Ok|`SrcNotExists|`DestExists] Deferred.t
+    val copy : t -> t -> f:(int -> blk -> bool) -> [`Ok|`SrcNotExists|`DestNotExists] Deferred.t
 
   end
 
@@ -163,7 +163,7 @@ module type MailboxStorage_intf =
     val fold : t -> ?exclusive:bool -> init:'a -> f:('a -> (module StorageAccessor_inst) -> 'a Deferred.t) -> 'a Deferred.t
 
     (* copy filtered *)
-    val copy_with : t -> t -> filter:(bool*States.sequence) -> [`Ok|`SrcNotExists|`DestExists] Deferred.t
+    val copy_with : t -> t -> filter:(bool*States.sequence) -> [`Ok|`SrcNotExists|`DestNotExists] Deferred.t
 
     (* copy filtered *)
     val search_with : t -> filter:(bool*(States.searchKey) States.searchKeys) -> int list Deferred.t

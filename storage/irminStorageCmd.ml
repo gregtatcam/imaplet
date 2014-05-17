@@ -45,7 +45,7 @@ type irminRequest = [
 
 type irminResponse = [
   | `Bootstrap
-  | `Copy_with of ([`Ok|`SrcNotExists|`DestExists])
+  | `Copy_with of ([`Ok|`SrcNotExists|`DestNotExists])
   | `Create of ([`Storage|`Folder])
   | `Create_account of [`Ok|`Exists]
   | `Delete 

@@ -259,7 +259,7 @@ module MailboxIndex =
       get_uids s key >>= fun uids ->
       match (Core.Std.List.nth uids seq) with
       | Some uid -> return (`Ok uid)
-      | None -> Printf.printf "no uids found\n%!"; return `NotFound
+      | None -> Printf.printf "no uids found %s %d\n%!" (IrminsuleIntf.key_to_string key) seq; return `NotFound
 
     (* find sequence corresponding to uid *)
     let get_seq key uid =
@@ -398,7 +398,7 @@ module type IrminMailbox_intf =
     val move_mailbox : t -> t -> unit Lwt.t
 
     (* copy the mailbox *)
-    val copy_mailbox : t -> t -> filter:(bool*States.sequence) -> [`Ok|`SrcNotExists|`DestExists] Lwt.t
+    val copy_mailbox : t -> t -> filter:(bool*States.sequence) -> [`Ok|`SrcNotExists|`DestNotExists] Lwt.t
 
     (* expunge deleted messages *)
     val expunge : t -> unit Lwt.t
@@ -583,17 +583,18 @@ module IrminMailbox =
 
     (* copy mailbox *)
     let copy_mailbox t1 t2 ~filter =
+      Printf.printf "copy_mailbox\n%!";
       exists t1 >>= function
       | `No -> return `SrcNotExists
       | _ -> exists t2 >>= function
-        | `Storage | `Folder -> return `DestExists
-        | `No ->
+        | `No | `Folder -> return `DestNotExists
+        | `Storage ->
           let open Interpreter in
           let (buid,sequence) = filter in
           IrminsuleIntf.create () >>= fun s ->
           let rec copy t1 t2 seq = 
             read_message t1 seq >>= function 
-            | `NotFound -> return ()
+            | `Eof | `NotFound -> return ()
             | `Ok (message,metadata) ->
               (
               if exec_seq sequence seq then
@@ -666,7 +667,8 @@ module IrminMailbox =
       IrminsuleIntf.create () >>= fun s ->
       let rec doread acc seq =
         read_message t seq >>= function
-        | `NotFound -> return acc
+        | `Eof -> return acc
+        | `NotFound -> doread acc (seq + 1)
         | `Ok (message,meta) ->
           let res = exec_search message.email keys meta seq in 
           if res then
@@ -710,6 +712,7 @@ module IrminMailbox =
 
     (* remove user account *)
     let remove_account t =
+      Printf.printf "---- remove_account %s\n%!" (IrminsuleIntf.key_to_string t);
       IrminsuleIntf.create () >>= fun s ->
       IrminsuleIntf.mem s t >>= fun res ->
       if res = false then (

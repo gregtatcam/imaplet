@@ -134,7 +134,7 @@ module type Storage_intf =
       f:('a -> [`Folder of string*int|`Storage of string] -> 'a Deferred.t) -> 'a Deferred.t
 
     (* copy storage with filter *)
-    val copy : t -> t -> f:(int -> blk -> bool) -> [`Ok|`SrcNotExists|`DestExists] Deferred.t
+    val copy : t -> t -> f:(int -> blk -> bool) -> [`Ok|`SrcNotExists|`DestNotExists] Deferred.t
 
   end
 
@@ -149,7 +149,7 @@ module type MailboxStorage_intf =
     val fold : t -> ?exclusive:bool -> init:'a -> f:('a -> (module StorageAccessor_inst) -> 'a Deferred.t) -> 'a Deferred.t
 
     (* copy filtered *)
-    val copy_with : t -> t -> filter:(bool*States.sequence) -> [`Ok|`SrcNotExists|`DestExists] Deferred.t
+    val copy_with : t -> t -> filter:(bool*States.sequence) -> [`Ok|`SrcNotExists|`DestNotExists] Deferred.t
 
     (* copy filtered *)
     val search_with : t -> filter:(bool*(States.searchKey) States.searchKeys) -> int list Deferred.t
@@ -601,8 +601,8 @@ module MboxIndexStorage
       exists tp1 >>= function
         | `No | `Folder -> return `SrcNotExists
         | `Storage -> exists tp2 >>= function
-          | `Folder | `Storage -> return `DestExists
-          | `No -> create tp2 >>= fun _ ->
+          | `Folder | `No -> return `DestNotExists
+          | `Storage -> create tp2 >>= fun _ ->
             fold tp1 ~exclusive:false ~init:() ~f:(fun () accs1 ->
               fold tp2 ~exclusive:false ~init:() ~f:(fun () accs2 ->
                 docopy accs1 accs2 f 1
@@ -838,6 +838,7 @@ module MboxMailboxStorage
       let (module Accessor:StorageAccessor_inst) = accs1 in
       Accessor.StorageAccessor.reader Accessor.this pos >>= function
         | `Eof -> return ()
+        | `NotFound -> docopy accs1 accs2 f (cnt + 1)
         | `Ok blk -> 
           if f cnt blk = true then
             let (module Accessor:StorageAccessor_inst) = accs2 in
@@ -851,8 +852,8 @@ module MboxMailboxStorage
       exists tp1 >>= function
         | `No | `Folder -> return `SrcNotExists
         | `Storage -> exists tp2 >>= function
-          | `Folder | `Storage -> return `DestExists
-          | `No -> create tp2 >>= fun _ ->
+          | `Folder | `No -> return `DestNotExists
+          | `Storage -> create tp2 >>= fun _ ->
               fold tp1 ~exclusive:false ~init:() ~f:(fun () accs1 ->
                 fold tp2 ~exclusive:false ~init:() ~f:(fun () accs2 ->
                 docopy accs1 accs2 f 1
@@ -863,8 +864,8 @@ module MboxMailboxStorage
       exists tp1 >>= function
         | `No | `Folder -> return `SrcNotExists
         | `Storage -> exists tp2 >>= function
-          | `Folder | `Storage -> return `DestExists
-          | `No -> create tp2 >>= fun _ -> 
+          | `Folder | `No -> return `DestNotExists
+          | `Storage -> create tp2 >>= fun _ -> 
             let (buid,sequence) = filter in
             copy tp1 tp2 ~f:(fun seq (_,metadata) ->
               let id = (if buid then metadata.uid else seq) in
@@ -876,6 +877,7 @@ module MboxMailboxStorage
       let (module Accessor:StorageAccessor_inst) = accs1 in
       Accessor.StorageAccessor.reader Accessor.this pos >>= function
         | `Eof -> return ()
+        | `NotFound -> docopy accs1 accs2 f (cnt+1)
         | `Ok blk -> 
           if f cnt blk = true then
             let (module Accessor:StorageAccessor_inst) = accs2 in
@@ -891,6 +893,7 @@ module MboxMailboxStorage
         let (module Accessor : StorageAccessor_inst) = accs in
         Accessor.StorageAccessor.reader Accessor.this (`Position seq) >>= function
           | `Eof -> return acc
+          | `NotFound -> doread acc accs (seq + 1)
           | `Ok (message,metadata) -> 
             let res = Interpreter.exec_search message.email keys metadata seq in 
             if res then

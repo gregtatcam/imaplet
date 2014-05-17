@@ -224,8 +224,8 @@ module MakeIrminsuleStorage
       exists tp1 >>= function
       | `No -> return `SrcNotExists
       | _ -> exists tp2 >>= function
-        | `Storage | `Folder -> return `DestExists
-        | `No ->
+        | `No | `Folder -> return `DestNotExists
+        | `Storage ->
           let accs_src = accessor_factory (u,l1,r,w) in
           let accs_dst = accessor_factory (u,l2,r,w) in
           let (module AccessorSrc:StorageAccessor_inst) = accs_src in
@@ -233,6 +233,7 @@ module MakeIrminsuleStorage
           let rec docopy f pos =
             AccessorSrc.StorageAccessor.reader AccessorSrc.this (`Position pos) >>= function
             | `Eof -> return ()
+            | `NotFound -> docopy f (pos+1)
             | `Ok blk -> 
               if f pos blk = true then
                 AccessorDst.StorageAccessor.writer AccessorDst.this `Append blk >>= fun _ ->

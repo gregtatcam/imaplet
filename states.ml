@@ -220,6 +220,7 @@ let fl_to_str fl =
   | Flags_Draft -> "\\Draft"
   | Flags_Extention e -> "\\" ^ e
   | Flags_Keyword k -> k
+  | Flags_Template -> "\\Template"
 
 let str_to_fl fl =
   if Regex.match_regex fl "^\\Answered$" then
@@ -236,6 +237,8 @@ let str_to_fl fl =
     Flags_Draft
   else if Regex.match_regex fl "^\\Extention (.+)$" then
     Flags_Extention (Str.matched_group 1 fl)
+  else if Regex.match_regex fl "^\\Template$" then
+    Flags_Template
   else 
     Flags_Keyword (fl)
 
@@ -255,6 +258,7 @@ let pr_flag fl =
   | Flags_Draft -> printf "Draft %!"
   | Flags_Extention e -> printf "Extention %s%!" e
   | Flags_Keyword k -> printf "Keywords %s%!" k
+  | Flags_Template -> printf "Template%!"
 
 let pr_flags = function
   | None -> ()
