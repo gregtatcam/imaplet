@@ -371,9 +371,9 @@ let append mbx (name:string) (reader:Reader.t) (writer:Writer.t) (flags:mailboxF
       | States.LiteralPlus n -> n) in
         let (module Mailbox) = storage_factory mbx name () in
         Mailbox.MailboxStorage.fold Mailbox.this ~exclusive:true ~init:() ~f:(fun () accs ->
-          (* read from the net and write to the email parser *)
-          (****** temp, use With_pipe.of_string to construct the message until
-           * Email_message is updated in git
+          (* read from the net and write to the email parser
+             use the pipe as intermediary to control the size of the data
+           *)
           let pipe_read = Pipe.init (fun pipe_write ->
             let rec read size =
               if size = 0 then (
@@ -396,27 +396,9 @@ let append mbx (name:string) (reader:Reader.t) (writer:Writer.t) (flags:mailboxF
             Pipe.write pipe_write "From dovecot@localhost.local  Thu Mar 20 17:23:22 2014\r\n" >>= fun () ->
             read size
           ) in 
-          ******)
-          (* need to handle bad message TBD *)
-          let rec read buffer size =
-            let buff_size = if size > 1024 then 1024 else size in
-            let buff = String.create buff_size in
-            Reader.really_read reader buff >>= function
-            | `Ok -> Buffer.add_string buffer buff; read buffer (size - buff_size)
-            | `Eof i -> 
-              if i = 0 then
-                return buffer 
-              else (
-                Buffer.add_string buffer (String.slice buff 0 i);
-                return buffer 
-              )
-          in
-          read (Buffer.create size) size >>= fun buffer ->
           let open Email_message in
-          (******
-          Mailbox.With_pipe.t_of_pipe pipe_read >>= fun mailbox ->
-          ******)
-          Mailbox.With_pipe.of_string (Buffer.contents buffer) >>= fun mailbox ->
+          Reader.of_pipe (Info.of_string "controlled network reader") pipe_read >>= fun c_reader ->
+          Mailbox.With_pipe.t_of_fd (Reader.fd c_reader) >>= fun mailbox ->
           (* fold over structured email messages *)
           Pipe.fold mailbox 
           ~init:()

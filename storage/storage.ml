@@ -720,7 +720,7 @@ module MboxMailboxStorage
               if (POS'.to_int64 pos) <> new_msg_offset then
                 assert(false)
               else
-                let r = Pipe.init (fun w -> 
+                let pipe_read = Pipe.init (fun w -> 
                   (* read raw bytes from the mailbox and pass to Email_message
                    * for parsing
                    *)
@@ -741,7 +741,8 @@ module MboxMailboxStorage
                   in
                   rd_mbox()
                 ) in
-                Mailbox.With_pipe.t_of_pipe r >>= fun mailbox ->
+                Reader.of_pipe (Info.of_string "controlled network reader") pipe_read >>= fun c_reader ->
+                Mailbox.With_pipe.t_of_fd (Reader.fd c_reader) >>= fun mailbox ->
                 (* fold over structured email messages *)
                 Pipe.fold mailbox 
                 ~init:(hdr,new_msg_offset) 
