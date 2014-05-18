@@ -96,8 +96,10 @@ let command =
             if if_template message then
               return ()
             else
+              let meta = empty_mailbox_message_metadata() in
+              let meta = {meta with flags = [Mflags.Flags_Seen]} in
               Accessor.StorageAccessor.writer Accessor.this `Append
-              (message,empty_mailbox_message_metadata()) >>= function
+              (message,meta) >>= function
               | `Ok -> printf "added message to the mailbox %s\n%!" irmin_mailbox; return ()
           )
         ) >>= fun _ -> return ()

@@ -526,8 +526,8 @@ module IrminMailbox =
 
     (* read metadata only *)
     let read_metadata key seq =
-      let index = MailboxIndex.create key in
-      MailboxIndex.get_uid key seq >>= function
+      let index_key = MailboxIndex.create key in
+      MailboxIndex.get_uid index_key seq >>= function
       | `NotFound -> return `NotFound
       | `Ok uid ->
         let msg_key = MailboxMessage.create key uid in

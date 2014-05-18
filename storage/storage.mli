@@ -82,6 +82,7 @@ module type MailboxAccessor_intf =
 
     val writer : t -> [`Append] -> mailbox_data -> [`Ok] Deferred.t
 
+    (* need to add sequence and uid filter to this TBD *)
     val reader_metadata : t -> [`Position of int] ->
       [`Ok of mailbox_message_metadata|`Eof] Deferred.t
 
