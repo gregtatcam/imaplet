@@ -29,16 +29,12 @@ module type StorageAccessor_intf =
     (* create accessor *)
     val create : a -> t 
 
-    (* read block from the storage at requested position,
-     * if position is none then sequential access,
-     * position 0 is the header if applicable `Header|`Record of int > 0
+    (* read block from the storage at requested position
      *)
     val reader : t -> [`Position of int] -> 
       [`Ok of blk|`Eof] Deferred.t
 
-    (* write block to the storage at requested position, 
-     * If `Eof then requested position exceeds storage size
-     * of rec * int
+    (* write block to the storage at requested position
      *)
     val writer : t -> [`Append|`Position of int] -> blk ->
       [`Ok|`Eof] Deferred.t
@@ -109,8 +105,7 @@ module type Storage_intf =
     type accs
     type blk
 
-    (* create storage type; takes location of the mailbox as a client sees it;
-     * creates specific implementation location
+    (* create storage type
      *)
     val create_st : loc -> dirs:(loc*loc) -> param -> t
 
@@ -189,24 +184,7 @@ module type Storage_inst =
     val this : MailboxStorage.t
     val this1 : MailboxStorage.t option
   end
-(*
-let build_strg_inst
-  (type l)
-  (type p)
-  (type a)
-  (module S : MailboxStorage_intf with type loc = l and type param = p and type accs = a)
-  params
-  ?tp2
-  ()
-  =
-  let (loc,m,i,param) = params in
-  (module struct
-    module MailboxStorage = S
-    let this = S.create_st loc ~dirs:(m,i) param
-    let this1 = match tp2 with | None -> None | Some (loc,m,i,param)-> 
-      Some (S.create_st loc ~dirs:(m,i) param)
-    end : Storage_inst with type MailboxStorage.accs = S.accs)
-*)
+
 let build_strg_inst
   (type l)
   (type p)
@@ -225,18 +203,7 @@ let build_strg_inst
     end : Storage_inst)
 
 
-(* define storage interface for index and mailboxes, for inst:
-  mbox: all messages are contained in one file (mailbox)
-  maildir: one file contains one message
-  irminsule: the interface is through the API, not os primitives (primitives.ml
-  implementation)
-  Index drives mailbox navigation. The index contains uidvalidity and some
-  statistics(header), uid, flags, and message location (message indices)
-  Both index and mailbox have to be created, deleted, renamed, coppied
-  (with filter), appended (with filter), updated, searched
-  The index is fixed in that any record can be located via seq # or uid
-  (either the same file, multiple files, or via API) 
-  The mailbox is variable in that the message size is variable 
+(* define storage interface for index and mailboxes
  *)
 
 module MboxIndexAccessor 

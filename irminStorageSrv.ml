@@ -72,7 +72,7 @@ let handle_exists user loc =
     return (`Exists res)
 
 let handle_create user loc = 
-  Printf.printf "------irminStorageSrv handle_create %s %s\n%!" user loc;
+  Printf.printf "------irminStorageSrv handle_create mailbox %s %s\n%!" user loc;
   let open Core.Std in
   let mbox = IrminMailbox.create user loc in
   let (folders,created) = 

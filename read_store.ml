@@ -38,21 +38,23 @@ let prompt str =
   out_line str >>= fun () ->
   in_line () 
 
-let rec selected mbox =
+let rec selected user mbox =
   let open StorageMeta in
   let open Email_message in
-  prompt ((IrminMailbox.to_string mbox) ^ ": ") >>= function 
-  | "help" -> Printf.printf "all\nexists\nhelp\nlist\nmeta\nmessage\nclose\n%!"; selected mbox
-  | "all" -> IrminMailbox.show_all mbox >>= fun () -> selected mbox
+  prompt (user ^ ":" ^ (IrminMailbox.to_string mbox) ^ ": ") >>= function 
+  | "help" -> Printf.printf "all\nexists\nhelp\nlist\nmeta\nmessage\nclose\n%!";
+  selected user mbox
+  | "all" -> IrminMailbox.show_all mbox >>= fun () -> selected user mbox
   | "exists" -> IrminMailbox.exists mbox >>= fun res ->
     (
      match res with
     | `No -> Printf.printf "no\n%!"
     | `Folder -> Printf.printf "folder\n%!"
     | `Storage -> Printf.printf "storage\n%!"
-    ); selected mbox
+    ); selected user mbox
   | "meta" -> IrminMailbox.get_mailbox_metadata mbox >>= fun meta ->
-    Printf.printf "%s\n%!" (Sexp.to_string (sexp_of_mailbox_metadata meta)); selected mbox
+    Printf.printf "%s\n%!" (Sexp.to_string (sexp_of_mailbox_metadata meta));
+    selected user mbox
   | "message" -> prompt "position? " >>= fun pos -> 
     (
     let pos = int_of_string pos in
@@ -62,7 +64,7 @@ let rec selected mbox =
       Printf.printf "%s\n%!" (Sexp.to_string (Mailbox.Message.sexp_of_t message));
       return ()
     | `NotFound -> Printf.printf "not found\n%!"; return ()
-    ) >>= fun() -> selected mbox
+    ) >>= fun() -> selected user mbox
   | "list" -> 
     IrminMailbox.list_store mbox >>= fun l ->
     Core.Std.List.iter l ~f:(fun i ->
@@ -70,24 +72,32 @@ let rec selected mbox =
       | `Folder (f,i) -> Printf.printf "folder/%d %s\n%!" i f;
       | `Storage s -> Printf.printf "storage %s\n%!" s;
     );
-    selected mbox
+    selected user mbox
   | "close" -> return ()
-  | _ -> Printf.printf "unknown command\n%!"; selected mbox
+  | _ -> Printf.printf "unknown command\n%!"; selected user mbox
 
 let main () =
   Store.create () >>= fun t ->
-  let rec request () =
-    prompt ": " >>= function 
-    | "help" -> Printf.printf "help\nselect\nquit\n%!"; request ()
+  out_line "type help for commands\n" >>= fun () ->
+  let rec request user =
+    prompt (user ^ ": ") >>= function 
+    | "help" -> Printf.printf "help\nselect\nlist\nuser\nquit\n%!"; request user
+    | "user" -> prompt "user? " >>= fun user -> request user
     | "select" -> 
-        prompt "user? " >>= fun user ->
         prompt "mailbox? " >>= fun mailbox ->
           let mbox = IrminMailbox.create user mailbox in
-          selected mbox >>= fun () -> request ()
+          selected user mbox >>= fun () -> request user
+    | "list" -> 
+      let mbox = IrminMailbox.create user "" in
+      IrminMailbox.list_store mbox >>= fun l ->
+      Core.Std.List.iter l ~f:(fun i -> match i with
+      | `Folder (i,c) -> Printf.printf "folder children:%d %s\n%!" c i
+      | `Storage c -> Printf.printf "storage %s\n%!" c); request user
     | "quit" -> return ()
-    | _ -> Printf.printf "unknown command\n%!"; request ()
+    | _ -> Printf.printf "unknown command\n%!"; request user
   in
-  request ()
+  prompt "user? " >>= fun user ->
+  request user 
 
 let () =
   Lwt_unix.run (main())

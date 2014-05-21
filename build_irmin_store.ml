@@ -31,8 +31,9 @@ let init_irmin_storage () =
        | `Ok _ -> printf "boostrapped\n%!"; return (Some (r,w))
        | `Eof -> printf "failed to bootstrap the store: eof\n%!"; return None
     ) >>= function
-      | Ok res -> return res
-      | Error ex -> printf "failed to boostrap the store: exception %s\n" (Exn.to_string ex); return None
+      | Ok res -> return (pid,res)
+      | Error ex -> printf "failed to boostrap the store: exception %s\n"
+      (Exn.to_string ex); return (pid,None)
 
 let unix_mbox_mailbox loc mbox_root inbox_root =
   let open Storage in
@@ -106,12 +107,11 @@ let command =
       )
   in
 
-  Command.basic
+  Command.async_basic
     ~summary:"run imaplet server"
     spec
       (fun user () -> 
-        upon (
-          init_irmin_storage () >>= fun str_rw ->
+          init_irmin_storage () >>= fun (pid,str_rw) ->
           let (module IrminMailbox) = get_storage user str_rw "" "/" "/" in
           IrminMailbox.MailboxStorage.remove_account IrminMailbox.this >>= fun _ ->
           IrminMailbox.MailboxStorage.create_account IrminMailbox.this >>= function
@@ -140,9 +140,7 @@ let command =
             ) >>= function
             | Ok () -> return ()
             | Error ex -> printf "%s\n%!" (Exn.to_string ex); return ()
-          )
-        ) (fun _ -> ());
-        never_returns (Scheduler.go())
+          ) >>= fun () -> Unix_syscalls.system_exn ("kill -9 " ^ (Pid.to_string pid))
       )
 
 (**

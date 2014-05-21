@@ -20,18 +20,7 @@ open Email_message
 open Mflags
 open StorageMeta
 
-(* define storage interface for index and mailboxes, for inst:
-  mbox: all messages are contained in one file (mailbox)
-  maildir: one file contains one message
-  irminsule: the interface is through the API, not os primitives (primitives.ml
-  implementation)
-  Index drives mailbox navigation. The index contains uidvalidity and some
-  statistics(header), uid, flags, and message location (message indices)
-  Both index and mailbox have to be created, deleted, renamed, coppied
-  (with filter), appended (with filter), updated, searched
-  The index is fixed in that any record can be located via seq # or uid
-  (either the same file, multiple files, or via API) 
-  The mailbox is variable in that the message size is variable 
+(* define storage interface for index and mailboxes
  *)
 
 module type StorageAccessor_intf = 
@@ -43,9 +32,7 @@ module type StorageAccessor_intf =
     (* create accessor *)
     val create : a -> t 
 
-    (* read block from the storage at requested position,
-     * if position is none then sequential access,
-     * position 0 is the header if applicable
+    (* read block from the storage at requested position
      *)
     val reader : t -> [`Position of int] -> [`Ok of blk|`Eof] Deferred.t
 
@@ -122,10 +109,7 @@ module type Storage_intf =
     type accs
     type blk
 
-    (* create storage type; takes location of the mailbox as a client sees it;
-     * creates specific implementation location
-     * dir - location for the mailbox and index root directories if different
-     * (mainly applies to inbox: /var/mail*/Users/user/mail)
+    (* create storage type
      *)
     val create_st : loc -> dirs:(loc*loc) -> param -> t
 
@@ -222,11 +206,3 @@ val build_strg_inst :
     type param = 'b and
     type accs = 'c) ->
   ('a*'a*'a*'b) -> ?tp2:'a*'a*'a*'b -> unit -> (module Storage_inst)
-(*
-val build_strg_inst :
-  (module MailboxStorage_intf with 
-    type loc = 'a and 
-    type param = 'b and
-    type accs = 'c) ->
-  ('a*'a*'a*'b) -> ?tp2:'a*'a*'a*'b -> unit -> (module Storage_inst with type MailboxStorage.accs = 'c )
-  *)
