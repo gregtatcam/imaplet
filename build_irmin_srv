@@ -1,3 +1,0 @@
-#corebuild -pkg lwt -pkg lwt.unix -pkg lwt.syntax irminStoreSrv.native
-
-corebuild -Is storage -use-ocamlfind -no-hygiene -tag thread -tag "syntax(camlp4o)" -package core,lwt,lwt.unix,lwt.syntax,irminsule.backend.git,sexplib.syntax,comparelib.syntax,bin_prot.syntax,email_message,extlib,str irminStorageSrv.native

@@ -1,1 +1,0 @@
-corebuild -Is storage -cflag -annot -tag debug -verbose 6 -use-menhir -tag thread -use-ocamlfind -quiet -package extlib,str,async,email_message,async_unix,async_kernel,sexplib imaplet.native

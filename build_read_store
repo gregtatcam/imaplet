@@ -1,1 +1,0 @@
-ocamlbuild -Is storage -use-ocamlfind -no-hygiene -tag thread -tag "syntax(camlp4o)" -package lwt,irminsule.backend.git,sexplib.syntax,comparelib.syntax,bin_prot.syntax,core,str,email_message,extlib read_store.native

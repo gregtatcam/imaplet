@@ -1,1 +1,0 @@
-corebuild -Is storage -pkgs async,email_message,async_unix,str,extlib build_irmin_store.native
