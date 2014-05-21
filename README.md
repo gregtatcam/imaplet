@@ -9,19 +9,18 @@ if you want to change the location. Two formats of mailboxes are supported: mbox
 build_irmin_srv.native -u user, where the user is the email account. read_store is a simple interractive UI to access 
 Irminsule store. 
 Dependencies are:
-async
-async_kernel
-async_unix
-bin_prot.syntax
-comparelib.syntax
-email_message
-extlib
-irminsule.backend.git
-lwt
-lwt.unix
-lwt.syntax
-sexplib
-sexplib.syntax
-str
+async,
+async_kernel,
+async_unix,
+bin_prot.syntax,
+comparelib.syntax,
+email_message,
+extlib,
+irminsule.backend.git,
+lwt,
+lwt.unix,
+lwt.syntax,
+sexplib.syntax,
+str.
 To build all components and utilities run "make all". Depending on your computer security settings you may have to run 
 executables as sudo.
