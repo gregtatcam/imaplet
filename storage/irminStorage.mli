@@ -17,6 +17,8 @@ open Lwt
 open Email_message
 open StorageMeta
 
+type position = [`Position of int|`UID of int]
+
 module type IrminMailbox_intf =
   sig
     type t
@@ -34,14 +36,16 @@ module type IrminMailbox_intf =
     val remove : t -> string -> unit Lwt.t
 
     (* read message/metadata *)
-    val read_message : t -> ?filter:(States.searchKey) States.searchKeys -> int -> [`Ok of (Mailbox.Message.t *
+    val read_message : t -> ?filter:(States.searchKey) States.searchKeys ->
+      position -> [`Ok of (Mailbox.Message.t *
     mailbox_message_metadata)| `NotFound|`Eof] Lwt.t
 
     (* read metadata only *)
-    val read_metadata : t -> int -> [`Ok of mailbox_message_metadata| `NotFound] Lwt.t
+    val read_metadata : t -> ?filter:States.sequence -> position -> [`Ok of mailbox_message_metadata| `Eof|`NotFound] Lwt.t
 
     (* update metadata *)
-    val update_metadata : t -> int -> mailbox_message_metadata -> [`Ok|`NotFound] Lwt.t
+    val update_metadata : t -> position -> mailbox_message_metadata ->
+      [`Ok|`Eof|`NotFound] Lwt.t
 
     (* create the mailbox *)
     val create_mailbox : t -> ?folders:bool -> unit Lwt.t
@@ -56,7 +60,7 @@ module type IrminMailbox_intf =
     val copy_mailbox : t -> t -> filter:(bool*States.sequence) -> [`Ok|`SrcNotExists|`DestNotExists] Lwt.t
 
     (* expunge deleted messages *)
-    val expunge : t -> unit Lwt.t
+    val expunge : t -> int list Lwt.t
 
     (* list storage *)
     val list_store : t -> [`Folder of string*int|`Storage of string] list Lwt.t

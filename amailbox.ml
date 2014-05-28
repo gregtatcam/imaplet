@@ -435,8 +435,30 @@ let search mbx (keys:('a)States.searchKeys) (buid:bool) :
       let (module Mailbox) = storage_factory mbx name () in
       Mailbox.MailboxStorage.search_with Mailbox.this ~filter:(buid,keys) >>= fun acc -> return (`Ok acc)
 
+let get_smallest_uid buid accs =
+  if buid = false then
+    return (Some 1)
+  else
+    let (module Accessor : StorageAccessor_inst) = accs in
+    Accessor.StorageAccessor.reader_metadata Accessor.this (`Position 1) >>= function
+    | `Eof -> return None
+    | `Ok metadata -> return (Some metadata.uid)
+
+let get_iterator mbx name accs buid sequence =
+  let (module Mailbox) = storage_factory mbx name () in
+  (if Iterator.SequenceIterator.single sequence then
+    return Int.max_value
+  else
+    Mailbox.MailboxStorage.get_mailbox_metadata Mailbox.this >>= fun metadata ->
+    if buid then return (metadata.uidnext-1) else return metadata.count
+  ) >>= fun max ->
+  get_smallest_uid buid accs >>= function
+  | None -> return None
+  | Some min -> return (Some (Iterator.SequenceIterator.create sequence min max))
+
 let fetch (mbx:t) (resp_writer:(string->unit)) (sequence:States.sequence) (fetchattr:States.fetch)
 (buid:bool) : [`NotExists|`NotSelectable|`Error of string|`Ok ] Deferred.t = 
+  let open Interpreter in
   match (selected_mbox mbx) with
   | None -> return (`Error "Not selected")
   | Some name ->
@@ -445,21 +467,31 @@ let fetch (mbx:t) (resp_writer:(string->unit)) (sequence:States.sequence) (fetch
     | `NotSelectable -> return (`NotSelectable)
     | `ValidMailbox -> 
       let (module Mailbox) = storage_factory mbx name () in
-      Mailbox.MailboxStorage.fold Mailbox.this ~exclusive:true ~init:() ~f:(fun () accs ->
-        let rec doread accs seq =
-          let (module Accessor : StorageAccessor_inst) = accs in
-          let filter = Some (States.Key (States.Search_SeqSet sequence)) in
-          Accessor.StorageAccessor.reader Accessor.this ?filter (`Position seq) >>= function
+      Mailbox.MailboxStorage.fold Mailbox.this ~exclusive:true
+      ~init:()
+      ~f:(fun () accs ->
+        (* should add the smallest uid to the the index header TBD
+         *)
+        get_iterator mbx name accs buid sequence >>= function
+        | None -> return ()
+        | Some it ->
+        let (module Accessor : StorageAccessor_inst) = accs in
+        let rec read = function
+          | `End -> return ()
+          | `Ok seq ->
+            let pos = if buid then (`UID seq) else (`Position seq) in
+            Accessor.StorageAccessor.reader Accessor.this pos >>= function
             | `Eof -> return ()
-            | `NotFound -> doread accs (seq + 1)
+            | `NotFound -> read (Iterator.SequenceIterator.next it)
             | `Ok (message,metadata) -> 
               printf "============= %s" (Email_message.Mailbox.Message.to_string message);
+              (* probably still need this since UID may not be sequential *)
               let res = Interpreter.exec_fetch seq sequence message metadata fetchattr buid in
               match res with
-              | Some res -> resp_writer res; doread accs (seq + 1)
-              | None -> doread accs (seq + 1)
+              | Some res -> resp_writer res; read (Iterator.SequenceIterator.next it)
+              | None -> read (Iterator.SequenceIterator.next it)
         in
-        doread accs 1
+        read (Iterator.SequenceIterator.next it)
       ) >>= fun () -> return `Ok
 
 let store (mbx:t) (resp_writer:(string->unit)) (sequence:States.sequence)
@@ -474,23 +506,29 @@ let store (mbx:t) (resp_writer:(string->unit)) (sequence:States.sequence)
   | `ValidMailbox ->
       let (module Mailbox) = storage_factory mbx name () in
       Mailbox.MailboxStorage.fold Mailbox.this ~exclusive:true ~init:() ~f:(fun () accs ->
-        let rec doread accs seq =
-          let (module Accessor : StorageAccessor_inst) = accs in
-          Accessor.StorageAccessor.reader_metadata Accessor.this (`Position seq) >>= function
+        let (module Accessor : StorageAccessor_inst) = accs in
+        get_iterator mbx name accs buid sequence >>= function
+        | None -> return ()
+        | Some it ->
+        let rec doread = function
+          | `End -> return ()
+          | `Ok seq ->
+          let pos = if buid then (`UID seq) else (`Position seq) in
+          Accessor.StorageAccessor.reader_metadata Accessor.this pos >>= function
             | `Eof -> return ()
+            | `NotFound -> doread (Iterator.SequenceIterator.next it)
             | `Ok metadata -> 
               let update metadata seq =
-                Accessor.StorageAccessor.writer_metadata Accessor.this metadata 
-                (`Position seq) >>= function
+                Accessor.StorageAccessor.writer_metadata Accessor.this metadata pos >>= function
                  | `Eof -> return ()
-                 | `Ok -> doread accs (seq + 1)
+                 | `NotFound|`Ok -> doread (Iterator.SequenceIterator.next it)
               in
               match Interpreter.exec_store metadata seq sequence storeattr flagsval buid with
-              | `None -> doread accs (seq + 1)
+              | `None -> doread (Iterator.SequenceIterator.next it)
               | `Silent metadata -> update metadata seq
               | `Ok (metadata,res) -> resp_writer res;update metadata seq
         in
-        doread accs 1
+        doread (Iterator.SequenceIterator.next it)
       ) >>= fun () -> return `Ok
 
 (** if copy fails it should restore the mailbox, so need to copy TBD **)

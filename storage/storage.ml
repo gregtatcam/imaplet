@@ -44,12 +44,12 @@ module type MboxIndexStorageAccessor_intf =
   sig
     include StorageAccessor_intf with type blk := mbox_index
 
-    val reader_header : t -> mailbox_metadata Deferred.t
+    val reader_header : t -> mbox_mailbox_metadata Deferred.t
 
     val reader_record : t -> [`Position of int] -> 
       [`Ok of mbox_message_metadata|`Eof] Deferred.t
 
-    val writer_header : t -> mailbox_metadata -> unit Deferred.t
+    val writer_header : t -> mbox_mailbox_metadata -> unit Deferred.t
 
     val writer_record : t -> [`Append|`Position of int] -> mbox_message_metadata -> [`Ok|`Eof] Deferred.t
   end
@@ -61,14 +61,14 @@ module type MailboxAccessor_intf =
     include StorageAccessor_intf with type blk := mailbox_data
 
     val reader : t -> ?filter:(States.searchKey) States.searchKeys -> 
-      [`Position of int] -> [`Ok of mailbox_data|`Eof|`NotFound] Deferred.t
+      [`Position of int|`UID of int] -> [`Ok of mailbox_data|`Eof|`NotFound] Deferred.t
 
     val writer : t -> [`Append] -> mailbox_data -> [`Ok] Deferred.t
 
-    val reader_metadata : t -> [`Position of int] ->
-      [`Ok of mailbox_message_metadata|`Eof] Deferred.t
+    val reader_metadata : t -> ?filter:(States.sequence) -> [`Position of int|`UID of int] ->
+      [`Ok of mailbox_message_metadata|`Eof|`NotFound] Deferred.t
 
-    val writer_metadata : t -> mailbox_message_metadata -> [`Position of int] -> [`Ok|`Eof] Deferred.t
+    val writer_metadata : t -> mailbox_message_metadata -> [`Position of int|`UID of int] -> [`Ok|`Eof|`NotFound] Deferred.t
   end
 
 module type StorageAccessor_inst = 
@@ -336,14 +336,24 @@ module MboxMailboxAccessor
       fudge_pos tp >>= fun fudge ->
       match pos with | `Position pos -> return (`Position (pos + fudge))
 
+    let get_position ac = function
+      | `Position pos -> return (Some (`Position pos))
+      | `UID pos -> IDXAC'.reader_header ac >>= fun hdr ->
+        match List.findi hdr.uids ~f:(fun i u -> if u = pos then true else false) with
+        | None -> return None
+        | Some (i,u) -> return (Some (`Position i))
+
     (* read block from the storage at requested position,
      * First read message offset from index and then read
      * the message; AC' is index accessor, A is mailbox accessor
      *)
     let reader tp ?filter pos = 
       let open Interpreter in
-      let seq = match pos with `Position pos -> pos in
       let (ac,a) = tp in
+      get_position ac pos >>= function 
+      | None -> return `NotFound
+      | Some pos ->
+      let seq = match pos with `Position pos -> pos in
       upd_pos tp pos >>= fun pos ->
       IDXAC'.reader_record ac pos >>= function
       | `Eof -> return `Eof
@@ -373,11 +383,23 @@ module MboxMailboxAccessor
       List.find l ~f:(fun f -> if f = fl then true else false) <> None
 
     (* read the metadata only *)
-    let reader_metadata tp pos = 
+    let reader_metadata tp ?filter pos = 
       let (ac,_) = tp in
-      IDXAC'.reader_record ac pos >>= function 
+      get_position ac pos >>= function 
+      | None -> return `NotFound
+      | Some seq ->
+      IDXAC'.reader_record ac seq >>= function 
         | `Eof -> return `Eof
-        | `Ok msg -> return (`Ok msg.metadata)
+        | `Ok msg -> 
+            if filter = None then
+              return (`Ok msg.metadata)
+            else (
+              let id = match pos with |`UID _ -> msg.metadata.uid |`Position seq -> seq in
+              if  (Interpreter.exec_seq (Option.value_exn filter) id) then
+                return (`Ok msg.metadata)
+              else
+                return `NotFound
+            )
 
      (* Can only do append so Position is not applicable, nor is the header. 
       need to write back index header or accumulate header and have the
@@ -388,7 +410,8 @@ module MboxMailboxAccessor
       let (message,metadata) = blk in
       let block = (Block.from_string (Mailbox.Message.to_string message)) in
       (* read index header *)
-      IDXAC'.reader_header ac >>= fun hdr -> 
+      IDXAC'.reader_header ac >>= fun all_hdr -> 
+      let hdr = all_hdr.mbox_metadata in
       A'.seek_end a >>= fun pos ->
         let start_offset = P'.to_int64 pos in
         let metadata = {metadata with size = Block.size block;uid = hdr.uidnext} in
@@ -411,16 +434,22 @@ module MboxMailboxAccessor
                 hdr.unseen
             in
             let hdr = update_mailbox_metadata ~header:hdr ~uidnext ~nunseen ~unseen ~recent ~count () in
-            IDXAC'.writer_header ac hdr >>= fun () -> return `Ok
+            let all_hdr = {mbox_metadata = hdr; uids = metadata.uid
+            :: all_hdr.uids} in
+            IDXAC'.writer_header ac all_hdr >>= fun () -> return `Ok
 
     (* write the metadata (flags only) *)
     let writer_metadata tp metadata pos =
+      let (ac,_) = tp in
+      get_position ac pos >>= function 
+      | None -> return `NotFound
+      | Some pos ->
       match pos with
       | `Position 0 -> assert(false)
       | `Position pos ->
-      let (ac,_) = tp in
       (* read index header *)
-      IDXAC'.reader_header ac >>= fun hdr -> 
+      IDXAC'.reader_header ac >>= fun all_hdr -> 
+        let hdr = all_hdr.mbox_metadata in
         IDXAC'.reader_record ac (`Position pos) >>= function
           | `Eof -> return `Eof
           | `Ok msg ->
@@ -440,7 +469,8 @@ module MboxMailboxAccessor
                 hdr.unseen
             in
             let hdr = update_mailbox_metadata ~header:hdr ~nunseen ~unseen ~recent () in
-            IDXAC'.writer_header ac hdr >>= fun () -> return `Ok
+            let all_hdr = {all_hdr with mbox_metadata = hdr} in
+            IDXAC'.writer_header ac all_hdr >>= fun () -> return `Ok
   end
 
 module UnixMboxMailboxStorageAccessor = MboxMailboxAccessor
@@ -519,7 +549,7 @@ module MboxIndexStorage
           let flags = F'.create [Nonblock;Wronly] in
           fold_internal tp ~exclusive:true ~perm ~flags ~init:() ~f:(fun () accs ->
             let hdr = empty_mailbox_metadata ~uidvalidity:(new_uidvalidity()) () in
-            IDXAC'.writer accs (`Position 0) (`Header hdr) >>= function
+            IDXAC'.writer accs (`Position 0) (`Header {mbox_metadata = hdr; uids=[]}) >>= function
               | `Eof -> assert(false)
               | `Ok -> return ()
           ) >>= fun () -> return `Storage
@@ -665,7 +695,8 @@ module MboxMailboxStorage
       IDXS'.fold ~exclusive:true idx 
       ~init:() 
       ~f:(fun () idx_accs -> 
-        IDXAC'.reader_header idx_accs >>= fun hdr ->
+        IDXAC'.reader_header idx_accs >>= fun hdr_all ->
+          let hdr = hdr_all.mbox_metadata in
           begin
           if hdr.count = 0 then
             return Int64.zero
@@ -712,8 +743,9 @@ module MboxMailboxStorage
                 Mailbox.With_pipe.t_of_fd (Reader.fd c_reader) >>= fun mailbox ->
                 (* fold over structured email messages *)
                 Pipe.fold mailbox 
-                ~init:(hdr,new_msg_offset) 
-                ~f:(fun (hdr,offset) message -> 
+                ~init:(hdr_all,new_msg_offset) 
+                ~f:(fun (hdr_all,offset) message -> 
+                  let hdr = hdr_all.mbox_metadata in
                   let from_daemon = (message.postmark.from = "MAILER_DAEMON") in
                   let idx_record = empty_mbox_message_metadata() in
                   let start_offset = offset in
@@ -729,7 +761,7 @@ module MboxMailboxStorage
                   ~start_offset ~end_offset ~size ~internal_date ~uid ~flags () in
                   IDXAC'.writer_record idx_accs `Append idx_record >>= fun _ ->
                    if from_daemon then
-                     return (hdr,end_offset)
+                     return (hdr_all,end_offset)
                    else (
                      let nunseen = hdr.nunseen + 1 in
                      let unseen =
@@ -744,7 +776,8 @@ module MboxMailboxStorage
                      let hdr = update_mailbox_metadata ~header:hdr ~nunseen ~unseen
                      ~recent ~count ~uidnext ()
                      in
-                     IDXAC'.writer_header idx_accs hdr >>= fun () -> return (hdr,end_offset) 
+                     let hdr_all = {mbox_metadata = hdr; uids = uid :: hdr_all.uids} in
+                     IDXAC'.writer_header idx_accs hdr_all >>= fun () -> return (hdr_all,end_offset) 
                    )
                 ) >>= fun _ -> return ()
           )
@@ -776,7 +809,6 @@ module MboxMailboxStorage
           let perm = P'.create 0o666 in
           let flags = F'.create [Nonblock;Rdwr] in
           U'.fold l ~exclusive ~perm ~flags ~init:acc ~f:(fun acc accs ->
-            (*let mbx_accs = MBXAC'.create (idx_accs, accs) in *)
             let mbx_accs = accessor_factory (idx_accs, accs) in
             f acc mbx_accs
           )
@@ -854,6 +886,10 @@ module MboxMailboxStorage
             docopy accs1 accs2 f (cnt+1)
 
     (* search with filter *)
+    (* need to update 
+     * - with SequenceIterator if the filter has sequence filter
+     * - use UID if the filter is for UID, TBD
+     *)
     let search_with t ~filter =
       let (buid,keys) = filter in
       let rec doread acc accs seq =
@@ -898,10 +934,10 @@ module MboxMailboxStorage
       let idx = create_idx_str_inst tp in
       build_index_if_not_exists tp >>= fun() ->
         IDXS'.fold ~exclusive:true idx 
-        ~init:(empty_mailbox_metadata())
+        ~init:({mbox_metadata=empty_mailbox_metadata();uids=[]})
         ~f:(fun acc idx_accs -> 
           IDXAC'.reader_header idx_accs 
-        )
+        ) >>= fun hdr_all -> return hdr_all.mbox_metadata
 
     (** get subscription path **)
     let get_subscr_path m = 

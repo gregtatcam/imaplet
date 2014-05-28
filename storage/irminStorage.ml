@@ -232,13 +232,23 @@ module MailboxMessage =
         return `NotFound
 
     (* read message metadata *)
-    let read_meta t =
+    let read_meta ?filter t =
+      let open Interpreter in
       let (v,_,_) = t in
       let key = mk_key t `Meta in
       IrminsuleIntf.tr_read v key >>= function
       | Some str ->
         let sexp = Sexp.of_string str in
-        return (`Ok (mailbox_message_metadata_of_sexp sexp))
+        let metadata = mailbox_message_metadata_of_sexp sexp in
+        if filter = None then
+          return (`Ok metadata)
+        else (
+          let (id,filter) = Core.Std.Option.value_exn filter in
+          if exec_seq filter id then
+            return (`Ok metadata)
+          else
+            return `NotFound
+        )
       | None -> return `NotFound
 
     let read_message_and_meta t =
@@ -336,7 +346,7 @@ module MailboxIndex =
     let get_uid t seq =
       assert(seq > 0);
       let (v,_,k) = t in
-      let seq = seq - 1 in
+      let seq = seq - 1 in (* record is 1 based, index is 0 based *)
       get_uids t >>= fun uids ->
       match (Core.Std.List.nth uids seq) with
       | Some uid -> return (`Ok uid)
@@ -477,6 +487,8 @@ module UserAccount =
 
   end
 
+type position = [`Position of int|`UID of int]
+
 module type IrminMailbox_intf =
   sig
     type t
@@ -494,14 +506,16 @@ module type IrminMailbox_intf =
     val remove : t -> string -> unit Lwt.t
 
     (* read message/metadata *)
-    val read_message : t -> ?filter:(States.searchKey) States.searchKeys -> int -> [`Ok of (Mailbox.Message.t *
+    val read_message : t -> ?filter:(States.searchKey) States.searchKeys ->
+      position -> [`Ok of (Mailbox.Message.t *
     mailbox_message_metadata)| `NotFound|`Eof] Lwt.t
 
     (* read metadata only *)
-    val read_metadata : t -> int -> [`Ok of mailbox_message_metadata| `NotFound] Lwt.t
+    val read_metadata : t -> ?filter:States.sequence -> position -> [`Ok of mailbox_message_metadata| `Eof|`NotFound] Lwt.t
 
     (* update metadata *)
-    val update_metadata : t -> int -> mailbox_message_metadata -> [`Ok|`NotFound] Lwt.t
+    val update_metadata : t -> position -> mailbox_message_metadata ->
+      [`Ok|`Eof|`NotFound] Lwt.t
 
     (* create the mailbox *)
     val create_mailbox : t -> ?folders:bool -> unit Lwt.t
@@ -516,7 +530,7 @@ module type IrminMailbox_intf =
     val copy_mailbox : t -> t -> filter:(bool*States.sequence) -> [`Ok|`SrcNotExists|`DestNotExists] Lwt.t
 
     (* expunge deleted messages *)
-    val expunge : t -> unit Lwt.t
+    val expunge : t -> int list Lwt.t
 
     (* list storage *)
     val list_store : t -> [`Folder of string*int|`Storage of string] list Lwt.t
@@ -629,19 +643,28 @@ module IrminMailbox : IrminMailbox_intf with type t = string list =
       _remove v key uid >>= fun () ->
       IrminsuleIntf.end_transaction v
 
+    let get_uid v key seq =
+      match seq with 
+      | `UID uid -> return (`Ok (string_of_int uid))
+      | `Position seq ->
+        let index_key = MailboxIndex.create v key in
+        MailboxIndex.get_uid index_key seq 
+
+    let get_pos = function
+      | `UID u -> u
+      | `Position p -> p
+
     let _read_message v key ?filter seq =
       let open Interpreter in
-      let index_key = MailboxIndex.create v key in
-      MailboxIndex.get_uid index_key seq >>= function
+      get_uid v key seq >>= function
       | `NotFound -> return `Eof
       | `Ok uid ->
-        Printf.printf "found uid %s for seq %d\n%!" uid seq;
         let msg_key = MailboxMessage.create v key uid in
         MailboxMessage.read_message_and_meta msg_key >>= function
         | `NotFound -> return `NotFound 
         | `Ok (message,meta) ->
           if filter = None ||
-              exec_search message.email (Core.Std.Option.value_exn filter) meta seq then (
+              exec_search message.email (Core.Std.Option.value_exn filter) meta (get_pos seq) then (
             return (`Ok (message,meta))
           ) else (
             return `NotFound
@@ -653,20 +676,21 @@ module IrminMailbox : IrminMailbox_intf with type t = string list =
       _read_message v key ?filter seq >>= fun res ->
       IrminsuleIntf.end_transaction v >>= fun () -> return res
 
-    let _read_metadata v key seq =
-      let index_key = MailboxIndex.create v key in
-      MailboxIndex.get_uid index_key seq >>= function
-      | `NotFound -> return `NotFound
+    let _read_metadata v key ?filter seq =
+      get_uid v key seq >>= function
+      | `NotFound -> return `Eof
       | `Ok uid ->
+        let seq = match seq with |`UID seq -> seq | `Position seq -> seq in
         let msg_key = MailboxMessage.create v key uid in
-        MailboxMessage.read_meta msg_key >>= function
-        | `NotFound -> assert(false)
+        let f = if filter = None then None else Some (seq,Core.Std.Option.value_exn filter) in
+        MailboxMessage.read_meta ?filter:f msg_key >>= function
+        | `NotFound -> return `NotFound
         | `Ok meta -> return (`Ok meta)
 
     (* read metadata only *)
-    let read_metadata key seq =
+    let read_metadata key ?filter seq =
       IrminsuleIntf.begin_transaction key >>= fun v ->
-      _read_metadata v key seq >>= fun res ->
+      _read_metadata v key ?filter seq >>= fun res ->
       IrminsuleIntf.end_transaction v >>= fun () ->
       return res
 
@@ -676,13 +700,12 @@ module IrminMailbox : IrminMailbox_intf with type t = string list =
         IrminsuleIntf.end_transaction v >>= fun () -> return r
       in
       IrminsuleIntf.begin_transaction key >>= fun v ->
-      let idx_key = MailboxIndex.create v key in
-      MailboxIndex.get_uid idx_key seq >>= function
+      get_uid v key seq >>= function
       | `Ok uid ->
         update_mailbox_meta v metadata ~adding:false ~countup:0 ~uidnextup:0 ~up:1 >>= fun _ ->
         let msg_key = MailboxMessage.create v key uid in
         MailboxMessage.update_metadata msg_key metadata
-      | `NotFound -> end_tr v `NotFound
+      | `NotFound -> end_tr v `Eof
 
     (* mailbox exists *)
     let exists t =
@@ -743,11 +766,12 @@ module IrminMailbox : IrminMailbox_intf with type t = string list =
           IrminsuleIntf.begin_transaction t1 >>= fun v1 ->
           IrminsuleIntf.begin_transaction t2 >>= fun v2 ->
           let rec copy v1 t1 v2 t2 seq = 
-            _read_message v1 t1 seq >>= function 
+            _read_message v1 t1 (`Position seq) >>= function 
             | `Eof | `NotFound -> return ()
             | `Ok (message,metadata) ->
               (
-              if exec_seq sequence seq then
+              let id = if buid then metadata.uid else seq in
+              if exec_seq sequence id then
                 _add v2 t2 message metadata
               else
                 return ()
@@ -760,20 +784,22 @@ module IrminMailbox : IrminMailbox_intf with type t = string list =
     
     (* delete all records with \Delete flag *)
     let expunge t =
-      let rec delete v t seq =
-        _read_metadata v t seq >>= function
-        | `NotFound -> return ()
+      let rec delete v t acc seq =
+        _read_metadata v t (`Position seq) >>= function
+        | `NotFound | `Eof -> return acc
         | `Ok meta ->
           (if (Core.Std.List.find meta.flags 
             ~f:(fun f -> if f = Flags_Deleted then true else false)) <> None then
-            _remove v t (string_of_int meta.uid)
+            _remove v t (string_of_int meta.uid) >>= fun() -> 
+            return (meta.uid :: acc)
           else
-            return ()
-          ) >>= fun () -> delete v t (seq + 1)
+            return acc
+          ) >>= fun acc -> delete v t acc (seq + 1)
       in
       IrminsuleIntf.begin_transaction t >>= fun v ->
-      delete v t 1 >>= fun () ->
-      IrminsuleIntf.end_transaction v
+      delete v t [] 1 >>= fun acc ->
+      IrminsuleIntf.end_transaction v >>= fun () ->
+      return acc
 
     (* list content of the mailbox *)
     let list_mbox v key = 
@@ -821,7 +847,7 @@ module IrminMailbox : IrminMailbox_intf with type t = string list =
       let (buid,keys) = filter in
       IrminsuleIntf.begin_transaction t >>= fun v ->
       let rec doread acc seq =
-        _read_message v t seq >>= function
+        _read_message v t (`Position seq) >>= function
         | `Eof -> return acc
         | `NotFound -> doread acc (seq + 1)
         | `Ok (message,meta) ->

@@ -45,12 +45,12 @@ module type MboxIndexStorageAccessor_intf =
   sig
     include StorageAccessor_intf with type blk := mbox_index
 
-    val reader_header : t -> mailbox_metadata Deferred.t
+    val reader_header : t -> mbox_mailbox_metadata Deferred.t
 
     val reader_record : t -> [`Position of int] -> 
       [`Ok of mbox_message_metadata|`Eof] Deferred.t
 
-    val writer_header : t -> mailbox_metadata -> unit Deferred.t
+    val writer_header : t -> mbox_mailbox_metadata -> unit Deferred.t
 
     val writer_record : t -> [`Append|`Position of int] -> mbox_message_metadata -> [`Ok|`Eof] Deferred.t
   end
@@ -65,16 +65,16 @@ module type MailboxAccessor_intf =
     include StorageAccessor_intf with type blk := mailbox_data
 
     val reader : t -> ?filter:(States.searchKey) States.searchKeys -> 
-      [`Position of int] -> [`Ok of mailbox_data|`Eof|`NotFound] Deferred.t
+      [`Position of int|`UID of int] -> [`Ok of mailbox_data|`Eof|`NotFound] Deferred.t
 
     val writer : t -> [`Append] -> mailbox_data -> [`Ok] Deferred.t
 
     (* need to add sequence and uid filter to this TBD *)
-    val reader_metadata : t -> [`Position of int] ->
-      [`Ok of mailbox_message_metadata|`Eof] Deferred.t
+    val reader_metadata : t -> ?filter:(States.sequence) -> [`Position of int|`UID of int] ->
+      [`Ok of mailbox_message_metadata|`Eof|`NotFound] Deferred.t
 
-    val writer_metadata : t -> mailbox_message_metadata -> [`Position of int] ->
-      [`Ok |`Eof] Deferred.t
+    val writer_metadata : t -> mailbox_message_metadata -> [`Position of int|`UID of int] ->
+      [`Ok |`Eof|`NotFound] Deferred.t
   end
 
 module type StorageAccessor_inst = 

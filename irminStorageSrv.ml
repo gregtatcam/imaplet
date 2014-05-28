@@ -34,23 +34,25 @@ let create_socket () =
   socket
 
 let get_pos = function
-  | `Position pos -> pos
+  | `Position p -> "seq " ^ (string_of_int p)
+  | `UID u -> "uid " ^ (string_of_int u)
 
 let handle_reader user loc filter pos = 
-  Printf.printf "------irminStorageSrv handle_reader %s %s %d\n%!" user loc (get_pos pos);
+  Printf.printf "------irminStorageSrv handle_reader %s %s %s\n%!" user loc (get_pos pos);
   let mbox = IrminMailbox.create user loc in
-  IrminMailbox.read_message mbox ?filter (get_pos pos) >>= function
+  IrminMailbox.read_message mbox ?filter pos >>= function
   | `Ok (msg, meta) ->
       return (`Reader (`Ok (msg, meta)))
   | `NotFound -> return (`Reader `NotFound)
   | `Eof -> return (`Reader `Eof)
 
-let handle_reader_metadata user loc pos =
-  Printf.printf "------irminStorageSrv handle_reader_metadata %s %s %d\n%!" user loc (get_pos pos);
+let handle_reader_metadata user loc filter pos =
+  Printf.printf "------irminStorageSrv handle_reader_metadata %s %s %s\n%!" user loc (get_pos pos);
   let mbox = IrminMailbox.create user loc in
-  IrminMailbox.read_metadata mbox (get_pos pos) >>= function
+  IrminMailbox.read_metadata mbox ?filter pos >>= function
   | `Ok meta -> return (`Reader_metadata (`Ok meta))
-  | `NotFound -> return (`Reader_metadata `Eof)
+  | `NotFound -> return (`Reader_metadata `NotFound)
+  | `Eof -> return (`Reader_metadata `Eof)
 
 let handle_writer user loc message metadata =
   Printf.printf "------irminStorageSrv handle_writer %s %s \n%!" user loc;
@@ -59,11 +61,12 @@ let handle_writer user loc message metadata =
     return (`Writer `Ok)
 
 let handle_writer_metadata user loc pos metadata =
-  Printf.printf "------irminStorageSrv handle_writer_metadata %s %s %d\n%!" user loc (get_pos pos);
+  Printf.printf "------irminStorageSrv handle_writer_metadata %s %s %s\n%!" user loc (get_pos pos);
   let mbox = IrminMailbox.create user loc in
-  IrminMailbox.update_metadata mbox (get_pos pos) metadata >>= function
+  IrminMailbox.update_metadata mbox pos metadata >>= function
     | `Ok -> return (`Writer_metadata `Ok)
-    | `NotFound -> return (`Writer_metadata `Eof)
+    | `NotFound -> return (`Writer_metadata `NotFound)
+    | `Eof -> return (`Writer_metadata `Eof)
 
 let handle_exists user loc =
   Printf.printf "------irminStorageSrv handle_exists %s %s\n%!" user loc;
@@ -100,8 +103,9 @@ let handle_delete user loc =
 let handle_expunge user loc =
   Printf.printf "------irminStorageSrv handle_expunge %s %s\n%!" user loc;
   let mbox = IrminMailbox.create user loc in
-  IrminMailbox.expunge mbox >>= fun () ->
-    return `Expunge
+  IrminMailbox.expunge mbox >>= fun res ->
+    Printf.printf "%d records expunged\n%!" (Core.Std.List.length res);
+    return (`Expunge res)
 
 let handle_copy user loc1 loc2 filter =
   Printf.printf "------irminStorageSrv handle_copy %s %s %s\n%!" user loc1 loc2;
@@ -181,7 +185,7 @@ let process_request outchan msg =
   | `Mailbox_metadata (user, loc) -> handle_get_metadata user loc
   | `Move (user, loc1, loc2) -> handle_move user loc1 loc2
   | `Reader (user,loc,pos,filter) -> handle_reader user loc filter pos 
-  | `Reader_metadata (user,loc,pos) -> handle_reader_metadata user loc pos
+  | `Reader_metadata (user,loc,filter,pos) -> handle_reader_metadata user loc filter pos
   | `Remove_account (user) -> handle_remove_account user 
   | `Rebuild_index (user, loc) -> handle_rebuild_index user loc
   | `Search_with (user, loc, filter) -> handle_search_with user loc filter

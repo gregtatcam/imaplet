@@ -32,7 +32,7 @@ let what_response = function
   | `Delete  -> "delete"
   | `Eof -> "eof"
   | `Exists _ -> "exists"
-  | `Expunge -> "expunge"
+  | `Expunge _ -> "expunge"
   | `Get_subscription _ -> "get_subscription"
   | `List_store _ -> "list_store"
   | `Mailbox_metadata _ -> "mailbox_metadata"
@@ -93,9 +93,9 @@ module MakeIrminsuleAccessor
       | _ -> raise_with "reader" resp 
 
     (* read the metadata only *)
-    let reader_metadata tp pos = 
+    let reader_metadata tp ?filter pos = 
       let (u,l,r,w) = tp in
-      request r w (`Reader_metadata (u,L'.to_str l,pos))>>= fun resp ->
+      request r w (`Reader_metadata (u,L'.to_str l,filter,pos))>>= fun resp ->
       match resp with
       | `Reader_metadata data -> return data
       | _ -> raise_with"reader_metadata" resp
@@ -264,7 +264,9 @@ module MakeIrminsuleStorage
       let (u,l1,_,_,r,w) = tp1 in
       request r w (`Expunge (u,L'.to_str l1)) >>= fun resp ->
       match resp with
-      | `Expunge -> return ()
+      | `Expunge expunged -> 
+        List.iter expunged f;
+        return ()
       | _ -> raise_with"expunge" resp
 
     (* get mailbox metadata like uidvalidity and some stats *)

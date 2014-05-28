@@ -31,8 +31,8 @@ type irminRequest = [
   | `List_store of string*string
   | `Mailbox_metadata of string*string
   | `Move of string*string * string
-  | `Reader of string*string * [`Position of int]*(States.searchKey) States.searchKeys option
-  | `Reader_metadata of string*string*([`Position of int])
+  | `Reader of string*string * [`Position of int|`UID of int]*(States.searchKey) States.searchKeys option
+  | `Reader_metadata of string*string*(States.sequence option)*([`Position of int|`UID of int])
   | `Remove_account of string
   | `Rebuild_index of string*string
   | `Search_with of string*string*(bool*(States.searchKey) States.searchKeys)
@@ -40,7 +40,7 @@ type irminRequest = [
   | `Unsubscribe of string * string
   | `Update_index of string*string
   | `Writer of string*string*[`Append] * (Mailbox.Message.t * mailbox_message_metadata)
-  | `Writer_metadata of string*string*[`Position of int] *mailbox_message_metadata
+  | `Writer_metadata of string*string*[`Position of int|`UID of int] *mailbox_message_metadata
 ] with sexp
 
 type irminResponse = [
@@ -51,13 +51,13 @@ type irminResponse = [
   | `Delete 
   | `Eof
   | `Exists of ([`No|`Storage|`Folder])
-  | `Expunge 
+  | `Expunge of int list
   | `Get_subscription of string list
   | `List_store of ([`Folder of string*int|`Storage of string] list)
   | `Mailbox_metadata of mailbox_metadata
   | `Move 
   | `Reader of ([`Ok of Mailbox.Message.t*mailbox_message_metadata|`Eof|`NotFound])
-  | `Reader_metadata of ([`Ok of mailbox_message_metadata|`Eof])
+  | `Reader_metadata of ([`Ok of mailbox_message_metadata|`Eof|`NotFound])
   | `Remove_account of [`Ok|`DoesntExist]
   | `Rebuild_index
   | `Search_with of int list
@@ -65,5 +65,5 @@ type irminResponse = [
   | `Unsubscribe
   | `Update_index of ([`NotExists|`Ok])
   | `Writer of ([`Ok]) 
-  | `Writer_metadata of ([`Ok|`Eof])
+  | `Writer_metadata of ([`Ok|`Eof|`NotFound])
 ] with sexp

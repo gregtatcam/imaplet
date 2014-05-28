@@ -58,12 +58,13 @@ let rec selected user mbox =
   | "message" -> prompt "position? " >>= fun pos -> 
     (
     let pos = int_of_string pos in
-    IrminMailbox.read_message mbox pos >>= function
+    IrminMailbox.read_message mbox (`Position pos) >>= function
     | `Ok (message,meta) ->
       Printf.printf "%s\n%!" (Sexp.to_string (sexp_of_mailbox_message_metadata meta));
       Printf.printf "%s\n%!" (Sexp.to_string (Mailbox.Message.sexp_of_t message));
       return ()
     | `NotFound -> Printf.printf "not found\n%!"; return ()
+    | `Eof -> Printf.printf "eof\n%!"; return ()
     ) >>= fun() -> selected user mbox
   | "list" -> 
     IrminMailbox.list_store mbox >>= fun l ->

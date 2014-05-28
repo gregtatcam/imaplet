@@ -27,6 +27,11 @@ type mailbox_metadata = {
   folders: bool;
 } with sexp
 
+type mbox_mailbox_metadata = {
+  mbox_metadata: mailbox_metadata;
+  uids: int list;
+}
+
 type mailbox_message_metadata = {
   uid: int;
   modseq: int64;
@@ -41,7 +46,7 @@ type mbox_message_metadata = {
   end_offset: int64;
 }
 
-type mbox_index = [`Header of mailbox_metadata | `Record of mbox_message_metadata]
+type mbox_index = [`Header of mbox_mailbox_metadata | `Record of mbox_message_metadata]
 
 val empty_mailbox_metadata : ?uidvalidity:string -> unit -> mailbox_metadata
 
