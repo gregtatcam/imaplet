@@ -12,6 +12,7 @@
 open Lwt
 open IrminStorage
 open Sexplib
+open Irmin_unix
 
 (* Enable debug outputs if DEBUG is set *)
 let () =
@@ -23,9 +24,18 @@ let () =
   with Not_found -> ()
 
 let path = "/tmp/irmin/test"
+(*
 module Git =
 IrminGit.Make(IrminKey.SHA1)(IrminContents.String)(IrminReference.String)
 module Store = (val Git.create ~bare:true ~kind:`Disk ~root:path ())
+*)
+
+module Git = IrminGit.FS(struct
+  let root = Some path
+  let bare = true
+end)
+
+module Store = Git.Make(IrminKey.SHA1)(IrminContents.String)(IrminTag.String)
 
 let in_line () =
   Lwt_io.read_line Lwt_io.stdin

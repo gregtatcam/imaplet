@@ -17,11 +17,21 @@ open Lwt
 open Email_message
 open StorageMeta
 open Sexplib
+open Irmin_unix
 
 let path = IrminStorageConfig.store_path
+(*
 module Git =
   IrminGit.Make(IrminKey.SHA1)(IrminContents.String)(IrminReference.String)
   module Store = (val Git.create ~bare:true ~kind:`Disk ~root:path ())
+*)
+
+module Git = IrminGit.FS(struct
+  let root = Some path
+  let bare = true
+end)
+
+module Store = Git.Make(IrminKey.SHA1)(IrminContents.String)(IrminTag.String)
 
 (* simple uid cache, it will not work with multiple connections TBD !!! *)
 let cache_uids = ref []
@@ -90,21 +100,21 @@ module IrminsuleIntf =
 
     let update_view store key view =
       Printf.printf "------ store update_view %s\n" (key_to_string key);
-      Store.update_view store key view
+      Store.View.update_path store key view
 
     let read_view store key =
-      Store.read_view store key
+      Store.View.of_path store key
 
     let begin_transaction key =
       create () >>= fun s ->
-      Store.read_view s key >>= fun v ->
+      Store.View.of_path s key >>= fun v ->
       return (s,v,key,ref false)
 
     let end_transaction t =
       let (s,v,k,d) = t in
       if !d = true then (
         Printf.printf "++++++++++++++++++ commiting!!!\n%!";
-        Store.update_view s k v >>= fun () ->
+        Store.View.update_path s k v >>= fun () ->
         d := false;
         return ()
       ) else
