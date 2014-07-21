@@ -16,6 +16,7 @@
 %token ALL
 %token ANSWERED
 %token APPEND
+%token LAPPEND
 %token <string> ASTRING_CHARS
 %token <string> ATOM_CHARS
 %token AUTHENTICATE
@@ -196,6 +197,10 @@ c_append:
 append_cmd:
   | APPEND; SP; m = mailbox {debug "p:append_cmd %s\n%!" m; (m)}
 
+c_lappend:
+  | LAPPEND; SP; u = user; SP; m = mailbox; SP; l = literal 
+    {debug "p:c_lappend %s %s\n%!" u m; Cmd_Lappend (u,m,l)}
+
 literal:
   | n = LITERAL {debug "p:literal %d\n%!" n;Literal(n)}
   | n = LITERALPL {debug "p:literal plus %d\n%!" n;LiteralPlus(n)}
@@ -255,6 +260,7 @@ c_unsubscribe:
 command_notauth:
   | c = login { c }
   | c = authenticate { c }
+  | c = c_lappend { c }
   | STARTTLS { Cmd_Starttls }
 
 login:

@@ -14,6 +14,16 @@ open IrminStorage
 open Sexplib
 open Irmin_unix
 
+exception InvalidCmd
+
+let uinput = ref []
+
+let arg n =
+  if Core.Std.List.length !uinput > n then
+    Core.Std.List.nth_exn !uinput n
+  else
+    raise InvalidCmd
+
 (* Enable debug outputs if DEBUG is set *)
 let () =
   try match Sys.getenv "DEBUG" with
@@ -46,13 +56,17 @@ let out_line str =
 
 let prompt str =
   out_line str >>= fun () ->
-  in_line () 
+  in_line () >>= fun msg ->
+  uinput := (Core.Std.String.split msg ~on:' ');
+  return (arg 0)
 
 let rec selected user mbox =
   let open StorageMeta in
   let open Email_message in
+  try
   prompt (user ^ ":" ^ (IrminMailbox.to_string mbox) ^ ": ") >>= function 
-  | "help" -> Printf.printf "all\nexists\nhelp\nlist\nmeta\nmessage\nclose\n%!";
+  | "help" -> Printf.printf "all\nexists\nhelp\nlist\nmeta\nmessage
+  #\nclose\nremove uid\nexpunge\nstore # +-| flags-list%!";
   selected user mbox
   | "all" -> IrminMailbox.show_all mbox >>= fun () -> selected user mbox
   | "exists" -> IrminMailbox.exists mbox >>= fun res ->
@@ -65,7 +79,7 @@ let rec selected user mbox =
   | "meta" -> IrminMailbox.get_mailbox_metadata mbox >>= fun meta ->
     Printf.printf "%s\n%!" (Sexp.to_string (sexp_of_mailbox_metadata meta));
     selected user mbox
-  | "message" -> prompt "position? " >>= fun pos -> 
+  | "message" -> let pos = arg 1 in
     (
     let pos = int_of_string pos in
     IrminMailbox.read_message mbox (`Position pos) >>= function
@@ -76,6 +90,39 @@ let rec selected user mbox =
     | `NotFound -> Printf.printf "not found\n%!"; return ()
     | `Eof -> Printf.printf "eof\n%!"; return ()
     ) >>= fun() -> selected user mbox
+  | "store" -> let pos = arg 1 in
+  (
+    let pos = int_of_string pos in
+    IrminMailbox.read_message mbox (`Position pos) >>= function
+    | `Ok (_,meta) ->
+      let flags = Core.Std.List.foldi !uinput ~init:[] ~f:(
+        fun i acc el -> Printf.printf "%s\n%!" el;if i < 3 then acc else
+          (States.str_to_fl ("\\" ^ el)) :: acc) in
+      let find l i = (Core.Std.List.find l ~f:(fun el -> if el = i then true else false)) <> None in
+      let meta =
+      (
+      match (arg 2) with
+      | "+" -> let flags = Core.Std.List.fold flags ~init:meta.flags ~f:(fun acc i -> 
+            if find acc i then acc else i :: acc) in {meta with flags}
+      | "-" -> let flags = Core.Std.List.fold meta.flags ~init:[] ~f:(fun acc i ->
+          if find flags i then acc else i :: acc) in {meta with flags}
+      | "|" -> {meta with flags}
+      | _ -> raise InvalidCmd
+      )
+      in IrminMailbox.update_metadata mbox (`Position pos) meta >>= fun res ->
+        ( match res with
+        | `Ok -> Printf.printf "updated\n%!"
+        | `Eof -> Printf.printf "eof\n%!"
+        | `NotFound -> Printf.printf "not found\n%!"
+        ); return ()
+    | `NotFound -> Printf.printf "not found\n%!"; return ()
+    | `Eof -> Printf.printf "eof\n%!"; return ()
+  ) >>= fun () -> selected user mbox
+  | "remove" -> let uid = arg 1 in IrminMailbox.remove mbox uid >>= fun () ->
+      selected user mbox
+  | "expunge" -> IrminMailbox.expunge mbox >>= fun deleted ->
+      Core.Std.List.iter deleted ~f:(fun i -> Printf.printf "deleted %d\n%!" i);
+      selected user mbox
   | "list" -> 
     IrminMailbox.list_store mbox >>= fun l ->
     Core.Std.List.iter l ~f:(fun i ->
@@ -86,16 +133,18 @@ let rec selected user mbox =
     selected user mbox
   | "close" -> return ()
   | _ -> Printf.printf "unknown command\n%!"; selected user mbox
+  with InvalidCmd -> Printf.printf "unknown command\n%!"; selected user mbox
 
 let main () =
   Store.create () >>= fun t ->
   out_line "type help for commands\n" >>= fun () ->
   let rec request user =
+    try
     prompt (user ^ ": ") >>= function 
-    | "help" -> Printf.printf "help\nselect\nlist\nuser\nquit\n%!"; request user
+    | "help" -> Printf.printf "help\nselect mbox\nlist\nuser\nquit\n%!"; request user
     | "user" -> prompt "user? " >>= fun user -> request user
     | "select" -> 
-        prompt "mailbox? " >>= fun mailbox ->
+          let mailbox = arg 1 in
           let mbox = IrminMailbox.create user mailbox in
           selected user mbox >>= fun () -> request user
     | "list" -> 
@@ -106,6 +155,7 @@ let main () =
       | `Storage c -> Printf.printf "storage %s\n%!" c); request user
     | "quit" -> return ()
     | _ -> Printf.printf "unknown command\n%!"; request user
+    with InvalidCmd -> Printf.printf "unknown command\n%!"; request user
   in
   prompt "user? " >>= fun user ->
   request user 

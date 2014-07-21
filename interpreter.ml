@@ -140,8 +140,10 @@ let should_include (email:Email.t) (record:mailbox_message_metadata) : bool =
     else
       acc
   ) in
-  if internal = 2 || 
-      (List.find record.flags ~f:(fun i -> if i = Flags_Deleted then true else false)) <> None then
+  if internal = 2 
+    (* deleted messages can be searched and fetched - tested in dovecot
+      || (List.find record.flags ~f:(fun i -> if i = Flags_Deleted then true else
+        false)) <> None*) then
     false
   else
     true
@@ -470,7 +472,6 @@ let rec exec_search_all headers content keys record seq =
 let exec_search (email:Email.t) (keys:(searchKey) searchKeys) (** encapsulate email in
 functor or another module to hide implementation TBD **)
 (record:mailbox_message_metadata) (seq:int) : (bool) =
-  printf "exec %d\n%!" record.uid;
   if should_include email record = false then
     false
   else

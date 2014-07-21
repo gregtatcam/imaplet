@@ -71,6 +71,7 @@ let keyword_table = String.Table.create()
  [ "ALL"		,ALL;
    "ANSWERED"		,ANSWERED;
    "APPEND"		,APPEND;
+   "LAPPEND"		,LAPPEND;
    "AUTHENTICATE"	,AUTHENTICATE;
    "EXAMINE"		,EXAMINE;
    "EXPUNGE"		,EXPUNGE;

@@ -98,6 +98,8 @@ let qstring = quote ( ( group ( orx quote_spec_char quoted_char ) ) ^ "+" )
 
 let mon = group "Jan\\|Feb\\|Mar\\|Apr\\|May\\|Jun\\|Jul\\|Aug\\|Sep\\|Oct\\|Nov\\|Dec"
 
+let dayofweek = group "Sun\\|Mon\\|Tue\\|Wen\\|Thu\\|Fri\\|Sat\\|Sun"
+
 let dd = group ( orx ( group "[0-9]") (group "[0-9][0-9]"))
 
 let dd_fixed = group ( orx ( group " [0-9]") (group "[0-9][0-9]"))
@@ -177,6 +179,9 @@ let date_time_regex =
 let email_regex =
   dd ^ " " ^ mon ^ " " ^ yyyy ^ " " ^ time ^ " " ^ zone
 
+(* Thu, 17 Jul 2014 14:53:00 +0100 (BST) *)
+let smtp_date_regex =
+  dayofweek ^ ", " ^ email_regex
 
 let date_time_dqregex =
   quote( date_time_regex)
@@ -243,7 +248,7 @@ let imapd_to_date_time_exn date =
 let date_time_to_email (dt:Time.t) : (string) =
   let tm = Unix.gmtime (Time.to_float dt) in
     (sprintf "%s, %d %s %d %02d:%02d:%02d +0000" 
-    (day_of_week tm.tm_wday) tm.tm_mday (int_to_month tm.tm_mon) (tm.tm_year + 100) 
+    (day_of_week tm.tm_wday) tm.tm_mday (int_to_month tm.tm_mon) (tm.tm_year + 1900) 
     tm.tm_hour tm.tm_min tm.tm_sec)
 
 (** convert date/time in email format to Time.t
@@ -277,7 +282,6 @@ let email_to_date_time_exn date =
   let f = (Time.to_float tm) +. (Float.of_int (utc_sec zone)) in
   Time.of_float f
 
-
 let append_regex =
   let cmd = "append" in
   let mbox = group astring in
@@ -286,6 +290,16 @@ let append_regex =
   let flags = group (" " ^ list_of astring) in
   let date = group (" " ^ date_time_dqregex) in
   "^" ^ tag ^ " " ^ cmd ^ " " ^ mailbox ^ flags ^ "?" ^ date ^ "? $"
+
+let lappend_regex =
+  let cmd = "lappend" in
+  let mbox = group astring in
+  let qmbox = group qstring in
+  let mailbox = group (orx mbox qmbox) in
+  let user = group astring in
+  let quser = group qstring in
+  let user_ = group (orx user quser) in
+  "^" ^ tag ^ " " ^ cmd ^ " " ^ mailbox ^ " " ^ user_ ^ "$"
 
 (** match reserved files  **)
 let match_dot file = 

@@ -71,3 +71,6 @@ let irmin_srv_exec () = "./irminStorageSrv.native"
 let irmin_inbox_root () = "/"
 
 let irmin_mailboxes () = "/"
+
+(* lmtp *)
+let lmtp_srv_exec = "./lmtp.native"

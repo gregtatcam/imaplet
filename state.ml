@@ -33,6 +33,7 @@ let make_resp_ctx resp_state_ctx resp_ctx resp_mbx_ctx =
 let return_resp_ctx resp_state_ctx resp_ctx resp_mbx_ctx =
   return (make_resp_ctx resp_state_ctx resp_ctx resp_mbx_ctx);;
 
+(*
 let unix_mbox_mailbox loc mbox_root inbox_root =
   let open Storage in
   build_strg_inst (module UnixMboxMailboxStorage) (loc, mbox_root, inbox_root,
@@ -78,6 +79,7 @@ let start_monitors user ipc_ctx =
 
 let stop_monitors logout =
   Condition.broadcast logout ()
+*)
 
 (** parse the buffer, return ok (request) or error (msg) **)
 let get_request_context contexts buff =
@@ -119,7 +121,6 @@ let handle_capability writer =
 
 let handle_logout ipc_ctx =
   write_resp ipc_ctx.net_w (Resp_Bye(None,""));
-  stop_monitors ipc_ctx.logout_ctx;
   return_resp_ctx (Some State_Logout) (Resp_Ok (None, "LOGOUT completed")) None
 
 (** TBD should have a hook into the maintenance to recet inactivity **)
@@ -133,7 +134,6 @@ let handle_idle writer =
   return_resp_ctx None (Resp_Any ("+ idling")) None
 
 let handle_done ipc_ctx =
-  stop_monitors ipc_ctx.logout_ctx;
   return_resp_ctx None (Resp_Ok (None, "IDLE")) None
 
 (**
@@ -141,14 +141,12 @@ let handle_done ipc_ctx =
 **)
 let handle_authenticate auth_type text ipc_ctx =
   Account.authenticate ipc_ctx.net_w auth_type text >>= function
-    | Ok (m,u) -> start_monitors u ipc_ctx; printf "started inbox monitor\n%!";
-      return_resp_ctx (Some State_Authenticated) m (Some (Amailbox.create u ipc_ctx.str_rw))
+    | Ok (m,u) -> return_resp_ctx (Some State_Authenticated) m (Some (Amailbox.create u ipc_ctx.str_rw))
     | Error e -> return_resp_ctx None e None
 
 let handle_login user password ipc_ctx =
   Account.login ipc_ctx.net_w user password >>= function
-    | Ok (m,u) -> start_monitors u ipc_ctx; printf "started inbox monitor\n%!";
-      return_resp_ctx (Some State_Authenticated) m (Some (Amailbox.create u ipc_ctx.str_rw))
+    | Ok (m,u) -> return_resp_ctx (Some State_Authenticated) m (Some (Amailbox.create u ipc_ctx.str_rw))
     | Error e -> return_resp_ctx None e None
 (**
  * Done Not Authenticated state
@@ -292,6 +290,7 @@ let handle_append reader writer mailbox flags date literal contexts =
       | `Eof i -> return_resp_ctx (Some State_Logout) (Resp_No(None, "Truncated Message")) None
       | `Ok -> return_resp_ctx None (Resp_Ok(None, "APPEND completed")) None
   )
+
 (**
  * Done Authenticated state
 **)
@@ -379,6 +378,10 @@ let handle_notauthenticated request contexts ipc_ctx context = match request wit
   | Cmd_Authenticate (a,s) -> handle_authenticate a s ipc_ctx
   | Cmd_Login (u, p) -> handle_login u p ipc_ctx
   | Cmd_Starttls -> return_resp_ctx None (Resp_Bad(None,"")) None
+  | Cmd_Lappend (user,mailbox,literal) -> 
+      let mbx = Amailbox.create user ipc_ctx.str_rw in
+      let contexts = { contexts with mbx_ctx = mbx } in
+      handle_append ipc_ctx.net_r ipc_ctx.net_w mailbox None None literal contexts
 
 let handle_authenticated request contexts ipc_ctx context = match request with
   | Cmd_Select mailbox -> handle_select ipc_ctx.net_w mailbox contexts true
@@ -472,7 +475,8 @@ let rec read_network reader writer buffer =
           let literal = Str.string_after buff i in
           Buffer.add_string buffer sub;
           printf "line is ending in literal %d %s --%s--\n%!" len literal sub;
-          if match_regex ~case:false (Buffer.contents buffer) append_regex then (
+          if match_regex ~case:false (Buffer.contents buffer) append_regex ||
+            match_regex ~case:false (Buffer.contents buffer) lappend_regex then (
             printf "handling append\n%!";
             Buffer.add_string buffer literal;
             Buffer.add_string buffer "\r\n";

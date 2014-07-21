@@ -168,6 +168,7 @@ type notAuthenticatedCmd =
   | Cmd_Starttls (** start tls negotiation **)
   | Cmd_Authenticate of authtype * string (** authentication mechanism **)
   | Cmd_Login of string * string (** user * password **)
+  | Cmd_Lappend of string * string * literal (** user * password **)
   
 type authenticatedCmd =  
   | Cmd_Select of string (** mailbox name **) 
@@ -223,22 +224,22 @@ let fl_to_str fl =
   | Flags_Template -> "\\Template"
 
 let str_to_fl fl =
-  if Regex.match_regex fl "^\\Answered$" then
+  if fl = "\\Answered" then
     Flags_Answered
-  else if Regex.match_regex fl "^\\Flagged$" then
+  else if fl = "\\Flagged" then
     Flags_Flagged
-  else if Regex.match_regex fl "^\\Deleted$" then
+  else if fl = "\\Deleted" then
     Flags_Deleted
-  else if Regex.match_regex fl "^\\Flags$" then
+  else if fl = "\\Seen" then
     Flags_Seen
-  else if Regex.match_regex fl "^\\Flags$" then
+  else if fl = "\\Recent" then
     Flags_Recent
-  else if Regex.match_regex fl "^\\Draft$" then
+  else if fl = "\\Draft" then
     Flags_Draft
-  else if Regex.match_regex fl "^\\Extention (.+)$" then
-    Flags_Extention (Str.matched_group 1 fl)
-  else if Regex.match_regex fl "^\\Template$" then
+  else if fl = "\\Template" then
     Flags_Template
+  else if Regex.match_regex fl "^\\\\Extention \\(.+\\)$" then
+    Flags_Extention (Str.matched_group 1 fl)
   else 
     Flags_Keyword (fl)
 

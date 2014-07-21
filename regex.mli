@@ -29,6 +29,8 @@ val date_time_regex : string
 
 val date_time_dqregex : string
 
+val smtp_date_regex : string
+
 val day_of_week : int -> string
 
 val int_to_month : int -> string
@@ -38,6 +40,8 @@ val of_day_of_week : string -> int
 val month_to_int : string -> int
 
 val append_regex : string
+
+val lappend_regex : string
 
 val imapd_to_date_exn : string -> Date.t
 

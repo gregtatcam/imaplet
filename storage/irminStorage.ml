@@ -99,14 +99,16 @@ module IrminsuleIntf =
       Store.update s key
 
     let update_view store key view =
-      Printf.printf "------ store update_view %s\n" (key_to_string key);
+      Printf.printf "------ store update_view %s\n%!" (key_to_string key);
       Store.View.update_path store key view
 
     let read_view store key =
+      Printf.printf "------ reading view %s\n%!" (key_to_string key);
       Store.View.of_path store key
 
     let begin_transaction key =
       create () >>= fun s ->
+      Printf.printf "------ creating view %s\n%!" (key_to_string key);
       Store.View.of_path s key >>= fun v ->
       return (s,v,key,ref false)
 
@@ -149,7 +151,7 @@ module IrminsuleIntf =
       Store.View.list v key
 
     let tr_remove store key =
-      (*Printf.printf "------ store remove %s\n" (key_to_string key);*)
+      Printf.printf "------ store remove %s\n" (key_to_string key);
       let (_,v,_,d) = store in
       Store.View.remove v key >>= fun () ->
       d := true;
@@ -164,11 +166,12 @@ module IrminsuleIntf =
 exception NotFound
 
 (* store the message broken down into postmark, header, content
- * stored under mailbox/messages key
- * mailbox/messages/postmark
- * mailbox/messages/headers
- * mailbox/messages/content
- * mailbox/messages/meta - per message metadata like flags, uid, etc
+ * stored under top-level/messages/uid key, where top-level is
+ * imaplet:user-name:mailboxes:mbox-name:mailboxes:mbox-name1...
+ * top-level/messages/uid/postmark
+ * top-level/messages/uid/headers
+ * top-level/messages/uid/content
+ * top-level/messages/uid/meta - per message metadata like flags, uid, etc
  *)
 module MailboxMessage =
   struct
@@ -216,8 +219,8 @@ module MailboxMessage =
     (* remove the message *)
     let remove t =
       let (v,_,_) = t in
-      let key = mk_key t `Root in
-      IrminsuleIntf.tr_remove v key
+      Lwt_list.iter_s (fun k -> let key = mk_key t k in IrminsuleIntf.tr_remove v key)
+      [`Headers;`Email;`Meta; `Postmark; `Root;]
 
     (* read message *)
     let read_message t =
@@ -273,10 +276,12 @@ module MailboxMessage =
       let (v,_,_) = t in
       let key = mk_key t `Meta in
       IrminsuleIntf.tr_mem v key >>= fun res ->
-      if res = false then
+      if res = false then (
+        Printf.printf "update_metadata key not found\n%!";
         return `NotFound
-      else
+      ) else
         let sexp = sexp_of_mailbox_message_metadata metadata in
+        Printf.printf "update_metadata %s\n%!" (Sexp.to_string sexp);
         IrminsuleIntf.tr_update v key (Sexp.to_string sexp) >>= fun () ->
         return `Ok
 
@@ -572,6 +577,9 @@ module type IrminMailbox_intf =
 
   end
 
+(* top level key is, for instance /Test/Test1
+ imaplet;user-name;mailboxes/Test/mailboxes/Test1
+*)
 module IrminMailbox : IrminMailbox_intf with type t = string list =
   struct
     type t = string list
@@ -639,7 +647,7 @@ module IrminMailbox : IrminMailbox_intf with type t = string list =
     let _remove v key uid = 
       let msg_key = MailboxMessage.create v key uid in
       MailboxMessage.read_meta msg_key >>= function
-      | `NotFound -> return ()
+      | `NotFound -> Printf.printf "_remove, uid not found %s\n%!" uid; return ()
       | `Ok message_meta ->
         MailboxMessage.remove msg_key >>= fun () ->
         let index = MailboxIndex.create v key in
@@ -714,7 +722,7 @@ module IrminMailbox : IrminMailbox_intf with type t = string list =
       | `Ok uid ->
         update_mailbox_meta v metadata ~adding:false ~countup:0 ~uidnextup:0 ~up:1 >>= fun _ ->
         let msg_key = MailboxMessage.create v key uid in
-        MailboxMessage.update_metadata msg_key metadata
+        MailboxMessage.update_metadata msg_key metadata >>= fun r -> end_tr v r 
       | `NotFound -> end_tr v `Eof
 
     (* mailbox exists *)
@@ -794,6 +802,7 @@ module IrminMailbox : IrminMailbox_intf with type t = string list =
     
     (* delete all records with \Delete flag *)
     let expunge t =
+      (*
       let rec delete v t acc seq =
         _read_metadata v t (`Position seq) >>= function
         | `NotFound | `Eof -> return acc
@@ -808,6 +817,23 @@ module IrminMailbox : IrminMailbox_intf with type t = string list =
       in
       IrminsuleIntf.begin_transaction t >>= fun v ->
       delete v t [] 1 >>= fun acc ->
+      IrminsuleIntf.end_transaction v >>= fun () ->
+      return acc
+      *)
+      IrminsuleIntf.begin_transaction t >>= fun v ->
+      let index_key = MailboxIndex.create v t in
+      MailboxIndex.get_uids index_key >>= fun uids ->
+      Lwt_list.fold_left_s (fun acc uid ->
+        _read_metadata v t (`UID (int_of_string uid)) >>= function
+        | `NotFound | `Eof -> return acc
+        | `Ok meta ->
+            if (Core.Std.List.find meta.flags 
+            ~f:(fun f -> if f = Flags_Deleted then true else false)) <> None then
+            _remove v t (string_of_int meta.uid) >>= fun() -> 
+            return (meta.uid :: acc)
+          else
+            return acc
+      ) [] uids >>= fun acc ->
       IrminsuleIntf.end_transaction v >>= fun () ->
       return acc
 

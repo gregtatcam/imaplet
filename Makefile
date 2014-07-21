@@ -4,7 +4,7 @@ STORAGE_SRC = storage/block.ml* storage/irminSrvIpc.ml* storage/irminStorage.ml*
 
 IMAPLET_SRC = imaplet.ml account.ml* amailbox.ml* configuration.ml* connection.ml* contextlist.ml* contexts.ml* fetchregex.ml interpreter.ml* lex.mll parser.mly regex.ml* response.ml* server.ml* state.ml* states.ml utils.ml* 
 
-all: imaplet srv store read_store
+all: imaplet srv store read_store lmtp
 
 clean:
 	ocamlbuild -clean
@@ -21,3 +21,6 @@ store: $(STORAGE_SRC)
 
 read_store: read_store.ml storage/irminStorage.ml* storage/storageMeta.ml*
 	ocamlbuild -Is storage -use-ocamlfind -no-hygiene -tag thread -tag "syntax(camlp4o)" -package lwt,irmin.backend,irmin.unix,sexplib.syntax,comparelib.syntax,bin_prot.syntax,core,str,email_message,extlib read_store.native
+
+lmtp: lmtp.ml lmtpConfig.ml*
+	corebuild -use-ocamlfind -no-hygiene -tag thread -tag "syntax(camlp4o)" -package core,lwt,lwt.unix,lwt.syntax,extlib,str lmtp.native

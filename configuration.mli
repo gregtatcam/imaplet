@@ -54,3 +54,5 @@ val irmin_srv_exec : unit -> string
 val irmin_inbox_root : unit -> string
 
 val irmin_mailboxes : unit -> string
+
+val lmtp_srv_exec : string

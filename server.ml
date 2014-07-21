@@ -38,11 +38,22 @@ let init_storage () =
   | `Mbox | `Mailbox -> return ()
   | `Irminsule -> launch_irmin_server ()
 
+(* init local delivery *)
+let init_local_delivery () =
+  Unix_syscalls.fork_exec
+  ~prog:(Configuration.lmtp_srv_exec)
+  ~args:[Configuration.lmtp_srv_exec] () >>= fun _ -> return ()
+
+(* initialize all things *)
+let init_all () =
+  init_storage () >>= fun () ->
+  init_local_delivery ()
+
 (**
  * start accepting connections
 **)
 let create ~port ~host =
-  init_storage () >>= fun () ->
+  init_all () >>= fun () ->
   Tcp.Server.create
   ~on_handler_error:`Raise
   (listen_on port host)
