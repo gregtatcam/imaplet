@@ -28,9 +28,10 @@ let launch_irmin_server () =
 
 let get_irmin_server_ipc () =
   let open IrminStorageCmd in
+  let open ServerConfig in
   try_with (fun () ->
-    let where = Tcp.to_host_and_port (Configuration.irmin_srv_addr())
-    (Configuration.irmin_srv_port()) in
+    let where = Tcp.to_host_and_port (srv_config.irmin_addr)
+    (srv_config.irmin_port) in
     Tcp.connect where >>= fun (_,r,w) -> 
     Writer.write w (marshal (Sexp.to_string (sexp_of_irminRequest `Bootstrap))) ; 
     Writer.flushed w >>= fun () ->

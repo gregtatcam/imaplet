@@ -280,7 +280,7 @@ let handle_append reader writer mailbox flags date literal contexts =
   let size = (match literal with
   | Literal n -> n
   | LiteralPlus n -> n) in
-  if size > Configuration.max_message_size then
+  if size > ServerConfig.srv_config.max_msg_size then
     return_resp_ctx None (Resp_No(None,"Max message size")) None
   else (
     append contexts.mbx_ctx mailbox reader writer flags date literal >>= function
@@ -377,7 +377,11 @@ let handle_any request contexts ipc_ctx context = match request with
 let handle_notauthenticated request contexts ipc_ctx context = match request with
   | Cmd_Authenticate (a,s) -> handle_authenticate a s ipc_ctx
   | Cmd_Login (u, p) -> handle_login u p ipc_ctx
-  | Cmd_Starttls -> return_resp_ctx None (Resp_Bad(None,"")) None
+  | Cmd_Starttls -> 
+    if ServerConfig.srv_config.starttls = true then
+      return_resp_ctx None (Resp_Ok(None,"STARTTLS")) None
+    else
+      return_resp_ctx None (Resp_Bad(None,"")) None
   | Cmd_Lappend (user,mailbox,literal) -> 
       let mbx = Amailbox.create user ipc_ctx.str_rw in
       let contexts = { contexts with mbx_ctx = mbx } in
@@ -505,7 +509,7 @@ let rec handle_client_requests contexts ipc_ctx =
   pr_state contexts;
   let buffer = Buffer.create 0 in
   read_network ipc_ctx.net_r ipc_ctx.net_w buffer >>= function
-    | `Eof -> printf "connection closed\n%!";close_irmin_server_ipc ipc_ctx.str_rw
+    | `Eof -> printf "imaplet: connection closed\n%!";close_irmin_server_ipc ipc_ctx.str_rw
     | `Ok -> let buff = Buffer.contents buffer in printf "read buff --%s--\n%!" buff;
       let context = get_request_context contexts buff in
       (match context with 

@@ -31,9 +31,6 @@ val inbox : string -> string
 (** mailboxes folder **)
 val mailboxes : string -> string
 
-(** max allowed message size **)
-val max_message_size : int
-
 (** max message size to process in-memory **)
 val max_message_in_memory_size : int
 
@@ -45,10 +42,6 @@ val mbox_index_params : unit -> (int * int)
 (* get type of storage *)
 val get_store : unit -> [`Mbox|`Mailbox|`Irminsule] 
 
-val irmin_srv_addr : unit -> string
-
-val irmin_srv_port : unit -> int
-
 val irmin_srv_exec : unit -> string
 
 val irmin_inbox_root : unit -> string
@@ -56,3 +49,7 @@ val irmin_inbox_root : unit -> string
 val irmin_mailboxes : unit -> string
 
 val lmtp_srv_exec : string
+
+val prx_srv_exec : string
+
+val srv_config_path : string

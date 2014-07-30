@@ -1,0 +1,96 @@
+(*
+ * Copyright (c) 2013-2014 Gregory Tsipenyuk <gregtsip@cam.ac.uk>
+ * 
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ *)
+type imapConfig = {
+  rebuild_irmin : bool; (* rebuild irminsule database on start up, default false *)
+  inbox_path : string; (* inbox location, default /var/mail *)
+  mail_path : string; (* mailboxes location, default /Users/user-name/mail *)
+  irmin_path : string; (* irminsule location, default / *)
+  max_msg_size : int;
+  imap_name : string; (* greeting name, default imaplet *)
+  imap_addr : string; (* imap address, default 127.0.0.1 *)
+  imap_port : int; (* local imap port, default 6002 *)
+  irmin_addr : string; (* irmin server addres, default 127.0.0.1 *)
+  irmin_port : int; (* irmin server port, default 20001 *)
+  lmtp_addr : string; (* lmtp server address, default 127.0.0.1 *)
+  lmtp_port : int; (* lmtp server port, default 24 *)
+  addr : string; (* server port, default 127.0.0.1 *)
+  port : int; (* server port, default 993 *)
+  ssl : bool; (* ssl enabled, default true *)
+  starttls : bool; (* starttls enabled, default true *)
+}
+
+let srv_config = 
+  let lines =
+  Core.Std.In_channel.read_lines "./imaplet.cf"
+  in
+  Printf.printf "##### loading configuration file #####\n%!";
+  let config = {
+    rebuild_irmin = false;
+    inbox_path = "/var/mail";
+    mail_path = "/Users/@/mail";
+    irmin_path = "/tmp/irmin/test";
+    max_msg_size = 0;
+    imap_name = "imaplet";
+    imap_addr = "127.0.0.1";
+    imap_port = 6000;
+    irmin_addr = "127.0.0.1";
+    irmin_port = 6001;
+    lmtp_addr = "127.0.0.1";
+    lmtp_port = 24;
+    addr = "127.0.0.1";
+    port = 993;
+    ssl = true;
+    starttls = true;
+  } in
+  let rec proc lines acc =
+    match lines with 
+    | hd :: tl -> 
+    let acc =
+    (
+    let matched = try 
+      (Str.search_forward (Str.regexp "^\\([^# ][^ ]+\\) \\([^ ]+$\\)") hd 0) = 0
+      with _ -> false
+    in
+    if matched then (
+      let n = Str.matched_group 1 hd in
+      let v = Str.matched_group 2 hd in
+      let log n v = Printf.printf "%s: invalid value %s\n%!" n v in
+      let ival n v default = try int_of_string v with _ -> log n v; default in
+      let bval n v default = try bool_of_string v with _ -> log n v; default in
+      match n with 
+      | "imap_name" -> {acc with imap_name = v }
+      | "rebuild_irmin" -> {acc with rebuild_irmin = bval n v false}
+      | "inbox_path" -> {acc with inbox_path = n}
+      | "mail_path" -> {acc with mail_path = n}
+      | "irmin_path" -> {acc with irmin_path = n}
+      | "max_msg_size" -> {acc with max_msg_size = ival n v 10_000_000}
+      | "imap_addr" -> {acc with imap_addr = v}
+      | "imap_port" -> {acc with imap_port = ival n v 6000}
+      | "irmin_addr" -> {acc with irmin_addr = v}
+      | "irmin_port" -> {acc with irmin_port = ival n v 6001}
+      | "lmtp_addr" -> {acc with lmtp_addr = v}
+      | "lmtp_port" -> {acc with lmtp_port = ival n v 24}
+      | "addr" -> {acc with addr = v}
+      | "port" -> {acc with port = ival n v 993}
+      | "ssl" -> {acc with ssl = bval n v true}
+      | "starttls" -> {acc with starttls = bval n v true}
+      | _ -> Printf.printf "unknown configuration %s\n%!" n; acc
+    ) else 
+      acc
+    ) in proc tl acc
+    | [] -> acc
+  in
+  proc lines config

@@ -16,11 +16,5 @@
 (* listen queue *)
 val backlog : int
 
-(* port to listen on *)
-val irmin_server_port : int
-
-(* local path *)
-val store_path : string
-
 (* version *)
 val version : string

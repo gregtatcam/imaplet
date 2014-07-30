@@ -44,10 +44,17 @@ let init_local_delivery () =
   ~prog:(Configuration.lmtp_srv_exec)
   ~args:[Configuration.lmtp_srv_exec] () >>= fun _ -> return ()
 
+(* init front end server *)
+let init_front_end () =
+  Unix_syscalls.fork_exec
+  ~prog:(Configuration.prx_srv_exec)
+  ~args:[Configuration.prx_srv_exec;"-p";"993";] () >>= fun _ -> return ()
+
 (* initialize all things *)
 let init_all () =
   init_storage () >>= fun () ->
-  init_local_delivery ()
+  init_local_delivery () >>= fun () ->
+  init_front_end ()
 
 (**
  * start accepting connections

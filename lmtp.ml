@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 open Lwt
+open ServerConfig
 
 exception InvalidCmd
 
@@ -22,7 +23,7 @@ let try_close chan =
   (function _ -> return ())
 
 let init_socket addr port =
-  Printf.printf "lmtp creating socket\n%!";
+  Printf.printf "lmtp: creating socket %s %d\n%!" addr port;
   let sockaddr = Unix.ADDR_INET (Unix.inet_addr_of_string addr, port) in
   let socket = Lwt_unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Lwt_unix.setsockopt socket Unix.SO_REUSEADDR true;
@@ -43,7 +44,7 @@ let init_unix_socket file =
   return socket
  
 let create_srv_socket () =
-  let socket = init_socket LmtpConfig.lmtp_inet_addr LmtpConfig.lmtp_port in
+  let socket = init_socket srv_config.lmtp_addr srv_config.lmtp_port in
   Lwt_unix.listen socket LmtpConfig.lmtp_backlog;
   socket
 
@@ -78,8 +79,9 @@ let add_postmark from_ msg =
 let send_to_imap from_ to_ msg =
   let msg = add_postmark from_ msg in
   Printf.printf "%s%!" msg;
-  let socket = init_socket "127.0.0.1" 6001 in
-  let imapaddr = Unix.ADDR_INET (Unix.inet_addr_of_string "127.0.0.1", 143) in
+  let socket = init_socket srv_config.lmtp_addr 0 in
+  let imapaddr = Unix.ADDR_INET (Unix.inet_addr_of_string
+    srv_config.imap_addr, srv_config.imap_port) in
   Lwt_unix.connect socket imapaddr >>= fun () ->
   let inchan = Lwt_io.of_fd ~mode:Lwt_io.input socket in
   let outchan = Lwt_io.of_fd ~mode:Lwt_io.output socket in
@@ -194,8 +196,8 @@ let rec requests inchan outchan buffer what =
       | `Done -> return ()
       | _ -> requests inchan outchan buffer what
   )
-  (fun ex -> Printf.printf "connection closed %s\n%!" (Core.Exn.backtrace()); return ())
-  with ex -> Printf.printf "exception %s\n" (Core.Exn.to_string ex); return ()
+  (fun ex -> Printf.printf "lmtp: connection closed %s\n%!" (Core.Exn.backtrace()); return ())
+  with ex -> Printf.printf "lmtp: exception %s\n" (Core.Exn.to_string ex); return ()
  
 let process socket =
   Printf.printf "lmtp processing socket\n%!";

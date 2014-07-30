@@ -16,8 +16,4 @@
 (* Irminsule local server configuration *)
 let backlog = 10
 
-let irmin_server_port = 20001
-
-let store_path = "/tmp/irmin/test"
-
 let version = "1.0.0"

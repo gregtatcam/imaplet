@@ -19,14 +19,15 @@ open Lwt
 open IrminStorage
 open Email_message
 open Sexplib
+open ServerConfig
  
 let try_close chan =
   catch (fun () -> Lwt_io.close chan)
   (function _ -> return ())
  
 let create_socket () =
-  Printf.printf "irminStorageSrv creating socket\n%!";
-  let sockaddr = Unix.ADDR_INET (Unix.inet_addr_any, IrminStorageConfig.irmin_server_port) in
+  Printf.printf "irminStorageSrv: creating socket any %d\n%!" srv_config.irmin_port;
+  let sockaddr = Unix.ADDR_INET (Unix.inet_addr_any, srv_config.irmin_port) in
   let socket = Lwt_unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Lwt_unix.setsockopt socket Unix.SO_REUSEADDR true;
   Lwt_unix.bind socket sockaddr;
@@ -201,15 +202,19 @@ let process_request outchan msg =
 
 
 let rec requests inchan outchan =
-  try
   catch (fun () -> 
     Lwt_io.read_value inchan >>= fun msg -> Printf.printf "irminStorageSrv requests\n%!";
     process_request outchan msg >>= fun () -> requests inchan outchan
   )
-  (fun ex -> Printf.printf "connection closed %s\n%!" (Core.Exn.backtrace());
+  (fun ex -> 
+    (match ex with 
+    | End_of_file ->
+      Printf.printf "irminStorageSrv: connection closed\n%!";
+    | _ ->
+      Printf.printf "%s\n%!" (Core.Exn.to_string ex);
+    );
     try_close inchan >> try_close outchan >> return() 
   )
-  with ex -> Printf.printf "exception %s\n" (Core.Exn.to_string ex); return ()
  
 let process socket =
   Printf.printf "irminStorageSrv processing socket\n%!";

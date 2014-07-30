@@ -19,7 +19,7 @@ open StorageMeta
 open Sexplib
 open Irmin_unix
 
-let path = IrminStorageConfig.store_path
+let path = ServerConfig.srv_config.irmin_path
 (*
 module Git =
   IrminGit.Make(IrminKey.SHA1)(IrminContents.String)(IrminReference.String)

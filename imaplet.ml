@@ -29,17 +29,21 @@ let handle_config = function
  * handle command line
 **)
 let command =
+  let open ServerConfig in
   Command.basic
     ~summary:"run imaplet server"
       Command.Spec.(
       empty
       +> flag "-c" (optional file) ~doc:"configuration file(optional)"
-      +> flag "-p" (optional_with_default 143 int) ~doc:"bind port(optional)"
-      +> flag "-a" (optional string) ~doc:"bind address(optional)"
       )
-      (fun c p h () -> 
+      (fun c () -> 
         handle_config c; 
-        upon (Server.create ~port:p ~host:h) (fun _ -> ());
+        upon (
+          Printf.printf "creating imap server on %s %d\n%!"
+            srv_config.imap_addr srv_config.imap_port;
+          Server.create 
+          ~port:srv_config.imap_port ~host:(Some srv_config.imap_addr)) 
+        (fun _ -> ());
         never_returns (Scheduler.go()))
 
 (**
