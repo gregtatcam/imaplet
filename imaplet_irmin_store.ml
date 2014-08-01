@@ -26,7 +26,7 @@ let try_close chan =
   (function _ -> return ())
  
 let create_socket () =
-  Printf.printf "irminStorageSrv: creating socket any %d\n%!" srv_config.irmin_port;
+  Printf.printf "imaplet_irmin_store: creating socket any %d\n%!" srv_config.irmin_port;
   let sockaddr = Unix.ADDR_INET (Unix.inet_addr_any, srv_config.irmin_port) in
   let socket = Lwt_unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Lwt_unix.setsockopt socket Unix.SO_REUSEADDR true;
@@ -39,7 +39,7 @@ let get_pos = function
   | `UID u -> "uid " ^ (string_of_int u)
 
 let handle_reader user loc filter pos = 
-  Printf.printf "------irminStorageSrv handle_reader %s %s %s\n%!" user loc (get_pos pos);
+  Printf.printf "------imaplet_irmin_store handle_reader %s %s %s\n%!" user loc (get_pos pos);
   let mbox = IrminMailbox.create user loc in
   IrminMailbox.read_message mbox ?filter pos >>= function
   | `Ok (msg, meta) ->
@@ -48,7 +48,7 @@ let handle_reader user loc filter pos =
   | `Eof -> return (`Reader `Eof)
 
 let handle_reader_metadata user loc filter pos =
-  Printf.printf "------irminStorageSrv handle_reader_metadata %s %s %s\n%!" user loc (get_pos pos);
+  Printf.printf "------imaplet_irmin_store handle_reader_metadata %s %s %s\n%!" user loc (get_pos pos);
   let mbox = IrminMailbox.create user loc in
   IrminMailbox.read_metadata mbox ?filter pos >>= function
   | `Ok meta -> return (`Reader_metadata (`Ok meta))
@@ -56,13 +56,13 @@ let handle_reader_metadata user loc filter pos =
   | `Eof -> return (`Reader_metadata `Eof)
 
 let handle_writer user loc message metadata =
-  Printf.printf "------irminStorageSrv handle_writer %s %s \n%!" user loc;
+  Printf.printf "------imaplet_irmin_store handle_writer %s %s \n%!" user loc;
   let mbox = IrminMailbox.create user loc in
   IrminMailbox.add mbox message metadata >>= fun () ->
     return (`Writer `Ok)
 
 let handle_writer_metadata user loc pos metadata =
-  Printf.printf "------irminStorageSrv handle_writer_metadata %s %s %s\n%!" user loc (get_pos pos);
+  Printf.printf "------imaplet_irmin_store handle_writer_metadata %s %s %s\n%!" user loc (get_pos pos);
   let mbox = IrminMailbox.create user loc in
   IrminMailbox.update_metadata mbox pos metadata >>= function
     | `Ok -> return (`Writer_metadata `Ok)
@@ -70,13 +70,13 @@ let handle_writer_metadata user loc pos metadata =
     | `Eof -> return (`Writer_metadata `Eof)
 
 let handle_exists user loc =
-  Printf.printf "------irminStorageSrv handle_exists %s %s\n%!" user loc;
+  Printf.printf "------imaplet_irmin_store handle_exists %s %s\n%!" user loc;
   let mbox = IrminMailbox.create user loc in
   IrminMailbox.exists mbox >>= fun res ->
     return (`Exists res)
 
 let handle_create user loc = 
-  Printf.printf "------irminStorageSrv handle_create mailbox %s %s\n%!" user loc;
+  Printf.printf "------imaplet_irmin_store handle_create mailbox %s %s\n%!" user loc;
   let open Core.Std in
   let mbox = IrminMailbox.create user loc in
   let (folders,created) = 
@@ -85,31 +85,31 @@ let handle_create user loc =
     else
       false,`Storage
   in
-  IrminMailbox.create_mailbox mbox ~folders >>= fun () ->
+  IrminMailbox.create_mailbox mbox ~folders () >>= fun () ->
     return (`Create created)
 
 let handle_move user loc1 loc2 =
-  Printf.printf "------irminStorageSrv handle_move %s %s %s\n%!" user loc1 loc2;
+  Printf.printf "------imaplet_irmin_store handle_move %s %s %s\n%!" user loc1 loc2;
   let mbox1 = IrminMailbox.create user loc1 in
   let mbox2 = IrminMailbox.create user loc2 in
   IrminMailbox.move_mailbox mbox1 mbox2 >>= fun () ->
     return `Move
 
 let handle_delete user loc =
-  Printf.printf "------irminStorageSrv handle_delete %s %s\n%!" user loc;
+  Printf.printf "------imaplet_irmin_store handle_delete %s %s\n%!" user loc;
   let mbox = IrminMailbox.create user loc in
   IrminMailbox.delete_mailbox mbox >>= fun () ->
     return `Delete
 
 let handle_expunge user loc =
-  Printf.printf "------irminStorageSrv handle_expunge %s %s\n%!" user loc;
+  Printf.printf "------imaplet_irmin_store handle_expunge %s %s\n%!" user loc;
   let mbox = IrminMailbox.create user loc in
   IrminMailbox.expunge mbox >>= fun res ->
     Printf.printf "%d records expunged\n%!" (Core.Std.List.length res);
     return (`Expunge res)
 
 let handle_copy user loc1 loc2 filter =
-  Printf.printf "------irminStorageSrv handle_copy %s %s %s\n%!" user loc1 loc2;
+  Printf.printf "------imaplet_irmin_store handle_copy %s %s %s\n%!" user loc1 loc2;
   let mbox1 = IrminMailbox.create user loc1 in
   let mbox2 = IrminMailbox.create user loc2 in
   IrminMailbox.copy_mailbox mbox1 mbox2 filter >>= fun res ->
@@ -120,49 +120,49 @@ let handle_update_index user loc = return (`Update_index `Ok)
 let handle_rebuild_index user loc = return `Rebuild_index
 
 let handle_get_metadata user loc =
-  Printf.printf "------irminStorageSrv handle_get_metadata %s %s\n%!" user loc;
+  Printf.printf "------imaplet_irmin_store handle_get_metadata %s %s\n%!" user loc;
   let mbox = IrminMailbox.create user loc in
   IrminMailbox.get_mailbox_metadata mbox >>= fun res ->
   return (`Mailbox_metadata res)
 
 let handle_get_subscription user =
-  Printf.printf "------irminStorageSrv handle_get_subscription %s\n%!" user;
+  Printf.printf "------imaplet_irmin_store handle_get_subscription %s\n%!" user;
   let mbox = IrminMailbox.create user "" in
   IrminMailbox.get_subscription mbox >>= fun res ->
   return (`Get_subscription res)
 
 let handle_subscribe user mailbox =
-  Printf.printf "------irminStorageSrv handle_subscribe %s %s\n%!" user mailbox; 
+  Printf.printf "------imaplet_irmin_store handle_subscribe %s %s\n%!" user mailbox; 
   let mbox = IrminMailbox.create user "" in
   IrminMailbox.subscribe mbox mailbox >>= fun () ->
   return (`Subscribe )
 
 let handle_unsubscribe user mailbox =
-  Printf.printf "------irminStorageSrv handle_unsubscribe %s %s\n%!" user mailbox;
+  Printf.printf "------imaplet_irmin_store handle_unsubscribe %s %s\n%!" user mailbox;
   let mbox = IrminMailbox.create user "" in
   IrminMailbox.unsubscribe mbox mailbox >>= fun () ->
   return (`Unsubscribe )
 
 let handle_list_store user loc =
-  Printf.printf "------irminStorageSrv handle_list_store %s %s\n%!" user loc;
+  Printf.printf "------imaplet_irmin_store handle_list_store %s %s\n%!" user loc;
   let mbox = IrminMailbox.create user loc in
   IrminMailbox.list_store mbox >>= fun res ->
     return (`List_store res)
 
 let handle_search_with user loc filter =
-  Printf.printf "------irminStorageSrv handle_search_with %s\n%!" loc;
+  Printf.printf "------imaplet_irmin_store handle_search_with %s\n%!" loc;
   let mbox = IrminMailbox.create user loc in
   IrminMailbox.search_with mbox filter >>= fun res ->
     return (`Search_with res)
 
 let handle_create_account user =
-  Printf.printf "------irminStorageSrv handle_create_account %s\n%!" user;
+  Printf.printf "------imaplet_irmin_store handle_create_account %s\n%!" user;
   let mbox = IrminMailbox.create user "" in
   IrminMailbox.create_account mbox >>= fun res ->
     return (`Create_account res)
 
 let handle_remove_account user =
-  Printf.printf "------irminStorageSrv handle_remove_account %s\n%!" user;
+  Printf.printf "------imaplet_irmin_store handle_remove_account %s\n%!" user;
   let mbox = IrminMailbox.create user "" in
   IrminMailbox.remove_account mbox >>= fun res ->
     return (`Remove_account res)
@@ -203,13 +203,13 @@ let process_request outchan msg =
 
 let rec requests inchan outchan =
   catch (fun () -> 
-    Lwt_io.read_value inchan >>= fun msg -> Printf.printf "irminStorageSrv requests\n%!";
+    Lwt_io.read_value inchan >>= fun msg -> Printf.printf "imaplet_irmin_store requests\n%!";
     process_request outchan msg >>= fun () -> requests inchan outchan
   )
   (fun ex -> 
     (match ex with 
     | End_of_file ->
-      Printf.printf "irminStorageSrv: connection closed\n%!";
+      Printf.printf "imaplet_irmin_store: connection closed\n%!";
     | _ ->
       Printf.printf "%s\n%!" (Core.Exn.to_string ex);
     );
@@ -217,11 +217,11 @@ let rec requests inchan outchan =
   )
  
 let process socket =
-  Printf.printf "irminStorageSrv processing socket\n%!";
+  Printf.printf "imaplet_irmin_store processing socket\n%!";
   let rec _process () =
     Lwt_unix.accept socket >>=
       (fun (socket_cli, _) ->
-        Printf.printf "irminStorageSrv accepted socket\n%!";
+        Printf.printf "imaplet_irmin_store accepted socket\n%!";
         let inchan = Lwt_io.of_fd ~mode:Lwt_io.input socket_cli in
         let outchan = Lwt_io.of_fd ~mode:Lwt_io.output socket_cli in
         async (fun () -> requests inchan outchan);
@@ -231,7 +231,7 @@ let process socket =
   _process ()
  
 let _ =
-  Printf.printf "irminStorageSrv started\n%!";
+  Printf.printf "imaplet_irmin_store started\n%!";
   let socket = create_socket () in
   Lwt_main.run (
     process socket

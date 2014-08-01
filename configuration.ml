@@ -41,13 +41,16 @@ let max_message_in_memory_size = 0 (**10_240**)
 
 let inbox_refresh () = 10
 
-let inbox_root () = ServerConfig.srv_config.inbox_path
+let inbox_root () = 
+  let open ServerConfig in 
+  srv_config.inbox_path
 
 let inbox name =
   Filename.concat (inbox_root()) name
 
 let mailboxes name = 
-  let l = String.split ServerConfig.srv_config.mail_path ~on:'@' in
+  let open ServerConfig in 
+  let l = String.split srv_config.mail_path ~on:'@' in
    (List.nth_exn l 0) ^ name ^ (List.nth_exn l 1)
 
 let get_mbox_flags =
@@ -60,14 +63,14 @@ let get_store () =
   `Irminsule
 
 (* Irminsule *)
-let irmin_srv_exec () = "./irminStorageSrv.native"
+let irmin_srv_exec () = "./imaplet_irmin_store.native"
 
 let irmin_inbox_root () = "/"
 
 let irmin_mailboxes () = "/"
 
 (* lmtp *)
-let lmtp_srv_exec = "./lmtp.native"
+let lmtp_srv_exec = "./imaplet_lmtp.native"
 
 (* imap proxy *)
 let prx_srv_exec = "./imaplet_proxy.native"

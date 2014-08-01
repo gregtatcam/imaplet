@@ -15,11 +15,14 @@
  *)
 open Lwt
 open Email_message
+open Email_message.Mailbox.Message
 open StorageMeta
 open Sexplib
 open Irmin_unix
+open ServerConfig
+open Mflags
 
-let path = ServerConfig.srv_config.irmin_path
+let path = srv_config.irmin_path
 (*
 module Git =
   IrminGit.Make(IrminKey.SHA1)(IrminContents.String)(IrminReference.String)
@@ -193,7 +196,7 @@ module MailboxMessage =
     let create v mailbox uid = 
       (v, uid, ["messages"])
 
-    (* adde messge and message metadata *)
+    (* add message and message metadata *)
     let add t (message:Mailbox.Message.t) message_metadata =
       Printf.printf "adding messge with uid %d\n%!" message_metadata.uid;
       let (v,_,_) = t in
@@ -212,7 +215,6 @@ module MailboxMessage =
       update v t `Headers (Sexp.to_string header_sexp) >>= fun () ->
       (* should break email into separate header and content sexp TBD *)
       update v t `Email (Sexp.to_string email_sexp) >>= fun () ->
-      let headerm = Header.to_string_monoid header in
       let sexp = sexp_of_mailbox_message_metadata message_metadata in
       update v t `Meta (Sexp.to_string sexp)
 
@@ -458,7 +460,6 @@ module MailboxesSubscription =
     (* unsubscribe *)
     let unsubscribe t mbox =
       read t >>= fun l ->
-      let l = Core.Std.List.fold_right l ~f:(fun i acc -> if i = mbox then acc else i::acc) ~init:[] in
       update t [mbox]
 
     (* get subscription *)
@@ -533,7 +534,7 @@ module type IrminMailbox_intf =
       [`Ok|`Eof|`NotFound] Lwt.t
 
     (* create the mailbox *)
-    val create_mailbox : t -> ?folders:bool -> unit Lwt.t
+    val create_mailbox : t -> ?folders:bool -> unit -> unit Lwt.t
 
     (* delete the mailbox *)
     val delete_mailbox : t -> unit Lwt.t
@@ -745,7 +746,7 @@ module IrminMailbox : IrminMailbox_intf with type t = string list =
         )
       )
 
-    let _create_mailbox v ?(folders=false)=
+    let _create_mailbox v ?(folders=false) ()=
       let meta_key = MailboxMetadata.create v () in
       MailboxMetadata.read meta_key >>= fun mailbox_meta ->
       let mailbox_meta = update_mailbox_metadata ~header:mailbox_meta ~folders () in
@@ -754,9 +755,9 @@ module IrminMailbox : IrminMailbox_intf with type t = string list =
       MailboxMetadata.update meta_key mailbox_meta 
 
     (* create mailbox *)
-    let create_mailbox t ?(folders=false)=
+    let create_mailbox t ?(folders=false) () =
       IrminsuleIntf.begin_transaction t >>= fun v ->
-      _create_mailbox v ~folders >>= fun () ->
+      _create_mailbox v ~folders () >>= fun () ->
       IrminsuleIntf.end_transaction v
 
     (* delete mailbox *)
@@ -839,14 +840,14 @@ module IrminMailbox : IrminMailbox_intf with type t = string list =
 
     (* list content of the mailbox *)
     let list_mbox v key = 
-      let doprint l = 
+      (*let doprint l = 
         List.iter
         (fun k ->
           Printf.printf "key: %!" ; List.iter (fun k -> Printf.printf
           "%s/%!" k) k;
           Printf.printf "\n%!";
         ) l
-      in
+      in*)
       let key = Core.Std.List.concat [key;["mailboxes"]] in
       IrminsuleIntf.tr_list v [key] >>= fun l -> return l
 

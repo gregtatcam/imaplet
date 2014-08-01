@@ -17,7 +17,6 @@
 %token ANSWERED
 %token APPEND
 %token LAPPEND
-%token <string> ASTRING_CHARS
 %token <string> ATOM_CHARS
 %token AUTHENTICATE
 %token EXAMINE
@@ -40,7 +39,6 @@
 %token DELETE
 %token DELETED
 %token DONE
-%token DQ
 %token DRAFT
 %token ENVELOPE
 %token EOF
@@ -71,8 +69,6 @@
 %token KEYWORD
 %token KERBEROS_V4
 %token LARGER
-%token LBK
-%token LBC
 %token LP
 %token <int> LITERAL
 %token <int> LITERALPL
@@ -82,10 +78,8 @@
 %token LOGOUT
 %token MESSAGES
 %token NEW
-%token NIL
 %token NOT
 %token NOOP
-%token <int> NUMBER
 %token OLD
 %token ON
 %token OR
@@ -97,8 +91,6 @@
 %token RFC822HEADER
 %token RFC822SIZE
 %token RFC822TEXT
-%token RBC
-%token RBK
 %token RP
 %token SEARCH
 %token SEEN
@@ -132,6 +124,7 @@
 %{
 open States
 open Mflags
+open Contexts
 let debug format = Printf.printf format (*(fun format a -> ())*)
 %}
 
@@ -410,7 +403,7 @@ search_key:
   | s = ATOM_CHARS {Search_SeqSet (Interpreter.get_sequence s)} 
 
 s_header:
-  | HEADER; SP; s1=SUBJECT; SP; s2 = ATOM_CHARS {Search_Header ("SUBJECT",s2)} (** header-fld-name **)
+  | HEADER; SP; SUBJECT; SP; s2 = ATOM_CHARS {Search_Header ("SUBJECT",s2)} (** header-fld-name **)
   | HEADER; SP; s1=ATOM_CHARS; SP; s2 = ATOM_CHARS {Search_Header (s1,s2)} (** header-fld-name **)
 
 s_date:

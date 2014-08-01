@@ -349,6 +349,7 @@ module MboxMailboxAccessor
      *)
     let reader tp ?filter pos = 
       let open Interpreter in
+      let open Email_message.Mailbox.Message in
       let (ac,a) = tp in
       get_position ac pos >>= function 
       | None -> return `NotFound
@@ -687,6 +688,8 @@ module MboxMailboxStorage
 
     (* update index from the mailbox *)
     let update_index tp = 
+      let open Email_message.Mailbox.Message in
+      let open Email_message.Mailbox.Postmark in
       let idx = create_idx_str_inst tp in
       IDXS'.exists idx >>= function
         | `No | `Folder -> return `NotExists
@@ -891,6 +894,7 @@ module MboxMailboxStorage
      * - use UID if the filter is for UID, TBD
      *)
     let search_with t ~filter =
+      let open Email_message.Mailbox.Message in
       let (buid,keys) = filter in
       let rec doread acc accs seq =
         let (module Accessor : StorageAccessor_inst) = accs in
@@ -948,7 +952,6 @@ module MboxMailboxStorage
     let subscr_helper tp ~flags ~init ~f =
       let (_,m,_,_,_) = tp in
       let path = get_subscr_path m in
-      let u = U'.create path in
       let perm = P'.create 0o666 in
       let flags = F'.create flags in
       U'.fold path ~exclusive:true ~perm ~flags ~init:init ~f:(fun acc accs ->
@@ -957,7 +960,6 @@ module MboxMailboxStorage
 
     (* get list of subscribed mailboxes *)
     let get_subscription tp =
-      let (_,m,_,_,_) = tp in
       subscr_helper tp ~flags:[Nonblock;Rdonly] ~init:[] ~f:(fun acc accs ->
         let rec read acc accs =
           AC'.reader_line accs >>= function

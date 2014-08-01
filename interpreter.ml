@@ -82,7 +82,6 @@ let headers_to_map (headers:Header.t) : ('a,'b,'c)Map.t =
   ~f:(fun map (k,v) -> Map.add map ~key:(String.lowercase k) ~data:(trim_space v))
 
 let map_of_alist (l:string list) =
-  let map = String.Map.empty in
   let l = List.dedup ~compare:String.compare l in
   List.fold l ~init:String.Map.empty ~f:(fun m i -> Map.add m ~key:i ~data:())
 
@@ -870,6 +869,7 @@ let exec_fetch_macro (seq:int) (sequence:States.sequence) (email:Email.t)
 
 let exec_fetch_all (seq:int) (sequence:States.sequence)
 (email:Email.t) (record:mailbox_message_metadata) (fetchattr:States.fetch) (buid:bool) : string =
+  let open Email_message.Mailbox.Message in
   match fetchattr with
   | FetchMacro macro -> exec_fetch_macro seq sequence email record macro
   | FetchAtt att -> 
@@ -879,6 +879,7 @@ let exec_fetch_all (seq:int) (sequence:States.sequence)
 (** need to trim based on seq TBD **)
 let exec_fetch (seq:int) (sequence:States.sequence) (message:Mailbox.Message.t)
 (record:mailbox_message_metadata) (attr:States.fetch) (buid:bool) : string option =
+  let open Email_message.Mailbox.Message in
   if should_include message.email record = false then
     None
   else if buid = false && exec_seq sequence seq || buid = true && (exec_seq sequence record.uid)  then

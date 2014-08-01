@@ -48,7 +48,7 @@ module type IrminMailbox_intf =
       [`Ok|`Eof|`NotFound] Lwt.t
 
     (* create the mailbox *)
-    val create_mailbox : t -> ?folders:bool -> unit Lwt.t
+    val create_mailbox : t -> ?folders:bool -> unit -> unit Lwt.t
 
     (* delete the mailbox *)
     val delete_mailbox : t -> unit Lwt.t

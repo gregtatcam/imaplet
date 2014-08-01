@@ -24,6 +24,7 @@ open Utils
 open Contextlist
 open Contexts
 open Regex
+open StorageMeta
 
 exception SystemError of string
 
@@ -280,7 +281,8 @@ let handle_append reader writer mailbox flags date literal contexts =
   let size = (match literal with
   | Literal n -> n
   | LiteralPlus n -> n) in
-  if size > ServerConfig.srv_config.max_msg_size then
+  let open ServerConfig in
+  if size > srv_config.max_msg_size then
     return_resp_ctx None (Resp_No(None,"Max message size")) None
   else (
     append contexts.mbx_ctx mailbox reader writer flags date literal >>= function
@@ -378,7 +380,8 @@ let handle_notauthenticated request contexts ipc_ctx context = match request wit
   | Cmd_Authenticate (a,s) -> handle_authenticate a s ipc_ctx
   | Cmd_Login (u, p) -> handle_login u p ipc_ctx
   | Cmd_Starttls -> 
-    if ServerConfig.srv_config.starttls = true then
+    let open ServerConfig in
+    if srv_config.starttls = true then
       return_resp_ctx None (Resp_Ok(None,"STARTTLS")) None
     else
       return_resp_ctx None (Resp_Bad(None,"")) None

@@ -86,7 +86,7 @@ let start_server () =
         Printf.printf "imaplet_proxy accept exception %s\n%!" 
         (Core.Std.Exn.to_string ex); raise ex
     )
-    >>= fun (channels, addr, cl_sock) ->
+    >>= fun (channels, _, cl_sock) ->
     (* start new thread for connected client *)
     async ( fun () ->
       Printf.printf "imaplet_proxy accepted\n%!";

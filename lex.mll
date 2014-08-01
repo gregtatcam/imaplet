@@ -35,15 +35,8 @@ let debug frmt = printf frmt (*(fun format a -> ())*)
 let print_first f = if !f = true then printf "first is true\n" else printf "first is false\n"
 
 let match_date str =
-let dq = "\"" in
-let quote re = dq ^ re ^ dq in
 let group re = "\\(" ^ re ^ "\\)" in
-let list_of re = "(" ^ re ^ ")" in
 let orx re1 re2 = re1 ^ "\\|" ^ re2 in
-let astring = "[^\r\n{()%*\"]+" in
-let quote_spec_char = "[\\\"]" in
-let quoted_char = "[^\r\n\\\"]" in
-let qstring = quote ( ( group ( orx quote_spec_char quoted_char ) ) ^ "+" ) in
 let mon = group "Jan\\|Feb\\|Mar\\|Apr\\|May\\|Jun\\|Jul\\|Aug\\|Sep\\|Oct\\|Nov\\|Dec" in
 let dd = group ( orx ( group " [0-9]") (group "[0-9][0-9]")) in
 let yyyy = group "[0-9][0-9][0-9][0-9]" in
@@ -117,7 +110,6 @@ let keyword_table = String.Table.create()
    "LOGOUT"		,LOGOUT;
    "MESSAGES"		,MESSAGES;
    "NEW"		,NEW;
-   "NIL"		,NIL;
    "NOT"		,NOT;
    "NOOP"		,NOOP;
    "OLD"		,OLD;
@@ -178,11 +170,7 @@ rule read =
   | eof      			{ debug "l:EOF\n%!"; EOF }
   | body as b                   { debug "l:body %s\n%!" b; BODYFETCH(b) }
   | bodypeek as b               { debug "l:body.peek %s\n%!" b; BODYPEEK(b) }
-  | '['				{ debug "l:[\n%!"; LBK}
-  | '{'				{ debug "l:]\n%!"; LBC }
   | '('				{ debug "l:(\n%!"; LP}
-  | ']'				{ debug "l:]\n%!"; RBK}
-  | '}'				{ debug "l:}\n%!"; RBC}
   | ')'				{ debug "l:)\n%!"; RP}
   | ' '    			{ debug "l:SP\n%!"; SP }
   | '{' (['0'-'9']+ as n) '+' '}'   { debug "l:literal-plus %s\n%!" n; LITERALPL(int_of_string(n)) }

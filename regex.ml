@@ -246,6 +246,7 @@ let imapd_to_date_time_exn date =
   )
 
 let date_time_to_email (dt:Time.t) : (string) =
+  let open Core.Std.Unix in
   let tm = Unix.gmtime (Time.to_float dt) in
     (sprintf "%s, %d %s %d %02d:%02d:%02d +0000" 
     (day_of_week tm.tm_wday) tm.tm_mday (int_to_month tm.tm_mon) (tm.tm_year + 1900) 

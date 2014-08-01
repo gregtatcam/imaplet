@@ -23,7 +23,7 @@ let try_close chan =
   (function _ -> return ())
 
 let init_socket addr port =
-  Printf.printf "lmtp: creating socket %s %d\n%!" addr port;
+  Printf.printf "imaplet_lmtp: creating socket %s %d\n%!" addr port;
   let sockaddr = Unix.ADDR_INET (Unix.inet_addr_of_string addr, port) in
   let socket = Lwt_unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Lwt_unix.setsockopt socket Unix.SO_REUSEADDR true;
@@ -31,16 +31,17 @@ let init_socket addr port =
   socket
 
 let init_unix_socket file =
-  Printf.printf "lmtp creating unix socket\n%!";
-  catch (fun () -> Lwt_unix.unlink file)
+  let open Lwt_unix in
+  Printf.printf "imaplet_lmtp creating unix socket\n%!";
+  catch (fun () -> unlink file)
   (function _ -> return ()) >>= fun () -> 
   let sockaddr = Unix.ADDR_UNIX file in
-  let socket = Lwt_unix.socket Unix.PF_UNIX Unix.SOCK_STREAM 0 in
-  Lwt_unix.setsockopt socket Unix.SO_REUSEADDR true;
-  Lwt_unix.bind socket sockaddr;
-  Lwt_unix.getpwnam "postfix" >>= fun pw ->
-  Lwt_unix.chown file pw.pw_uid pw.pw_gid >>= fun () ->
-  Lwt_unix.chmod file  0o777 >>= fun () ->
+  let socket = socket Unix.PF_UNIX Unix.SOCK_STREAM 0 in
+  setsockopt socket Unix.SO_REUSEADDR true;
+  bind socket sockaddr;
+  getpwnam "postfix" >>= fun (pw:Lwt_unix.passwd_entry) ->
+  chown file pw.pw_uid pw.pw_gid >>= fun () ->
+  chmod file  0o777 >>= fun () ->
   return socket
  
 let create_srv_socket () =
@@ -53,6 +54,8 @@ let create_srv_socket () =
     for <dovecot@localhost>; Thu, 17 Jul 2014 14:53:00 +0100 (BST)
 *)
 let add_postmark from_ msg =
+  let open Core.Std in
+  let open Core.Std.Unix in
   if Regex.match_regex msg "^From " = true then
     msg
   else (
@@ -64,8 +67,8 @@ let add_postmark from_ msg =
         in
         (matched 1) ^ " " ^ (matched 5) ^ " " ^ (matched 2) ^ " " ^ (matched 7) ^ " " ^ (matched 6)
       ) else (
-        let tm = Unix.gmtime (Core.Std.Time.to_float (Core.Std.Time.now())) in
-        (Core.Std.sprintf "%s %s %d %02d:%02d:%02d %d" 
+        let tm = Unix.gmtime (Time.to_float (Time.now())) in
+        (sprintf "%s %s %d %02d:%02d:%02d %d" 
         (Regex.day_of_week tm.tm_wday) (Regex.int_to_month tm.tm_mon) tm.tm_mday 
         tm.tm_hour tm.tm_min tm.tm_sec (tm.tm_year + 1900)) 
       )
@@ -189,22 +192,22 @@ let rec requests inchan outchan buffer what =
   Printf.printf "in requests\n%!";
   try
   catch (fun () -> 
-    Lwt_io.read ~count:10240 inchan >>= fun msg -> Printf.printf "lmtp requests\n%!";
+    Lwt_io.read ~count:10240 inchan >>= fun msg -> Printf.printf "imaplet_lmtp requests\n%!";
     process_request outchan msg buffer what >>= fun what ->
       let (_,_,state) = what in
       match state with
       | `Done -> return ()
       | _ -> requests inchan outchan buffer what
   )
-  (fun ex -> Printf.printf "lmtp: connection closed %s\n%!" (Core.Exn.backtrace()); return ())
-  with ex -> Printf.printf "lmtp: exception %s\n" (Core.Exn.to_string ex); return ()
+  (fun ex -> Printf.printf "imaplet_lmtp: connection closed %s\n%!" (Core.Exn.backtrace()); return ())
+  with ex -> Printf.printf "imaplet_lmtp: exception %s\n" (Core.Exn.to_string ex); return ()
  
 let process socket =
-  Printf.printf "lmtp processing socket\n%!";
+  Printf.printf "imaplet_lmtp processing socket\n%!";
   let rec _process () =
     Lwt_unix.accept socket >>=
       (fun (socket_cli, _) ->
-        Printf.printf "lmtp accepted socket\n%!";
+        Printf.printf "imaplet_lmtp accepted socket\n%!";
         let inchan = Lwt_io.of_fd ~mode:Lwt_io.input socket_cli in
         let outchan = Lwt_io.of_fd ~mode:Lwt_io.output socket_cli in
         async (fun () -> 
@@ -219,7 +222,7 @@ let process socket =
   _process ()
  
 let _ =
-  Printf.printf "lmtp started\n%!";
+  Printf.printf "imaplet_lmtp started\n%!";
   let socket = create_srv_socket() in 
   Lwt_main.run (
     process socket

@@ -24,6 +24,7 @@ open StorageMeta
 open IrminStorageClnt
 open Mflags
 open Email_message
+open States
 
 exception BadMailbox of string
 exception TruncatedMessage
@@ -293,7 +294,7 @@ let lsubmbx mbx (reference:string) (mailbox:string) : (string*string list) list 
 (** create mailbox **)
 let create_mailbox mbx (mailbox:string) : [`Error of string|`Ok] Deferred.t =
   valid_mailbox mbx mailbox >>= function
-    | `ValidMailbox | `NotSelectable -> return (`Error("Mailbox already exists"))
+    | `ValidMailbox -> return (`Error("Mailbox already exists"))
     | `NotSelectable -> return (`Error("Invalid Superior"))
     | `NotExists ->
       if match_regex mailbox "^/" then
@@ -441,7 +442,7 @@ let get_smallest_uid buid accs =
   else
     let (module Accessor : StorageAccessor_inst) = accs in
     Accessor.StorageAccessor.reader_metadata Accessor.this (`Position 1) >>= function
-    | `Eof -> return None
+    | `Eof | `NotFound -> return None
     | `Ok metadata -> return (Some metadata.uid)
 
 let get_iterator mbx name accs buid sequence =

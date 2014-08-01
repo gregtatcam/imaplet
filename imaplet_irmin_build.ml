@@ -17,6 +17,7 @@ open Core.Std
 open Async.Std
 open Async_unix
 open Email_message
+open Email_message.Mailbox.Message
 open Storage
 open ServerConfig
 
