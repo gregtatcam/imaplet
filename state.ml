@@ -34,54 +34,6 @@ let make_resp_ctx resp_state_ctx resp_ctx resp_mbx_ctx =
 let return_resp_ctx resp_state_ctx resp_ctx resp_mbx_ctx =
   return (make_resp_ctx resp_state_ctx resp_ctx resp_mbx_ctx);;
 
-(*
-let unix_mbox_mailbox loc mbox_root inbox_root =
-  let open Storage in
-  build_strg_inst (module UnixMboxMailboxStorage) (loc, mbox_root, inbox_root,
-  Configuration.mbox_index_params()) ()
-
-let irmin_mailbox user loc mbox_root inbox_root rw =
-  let open Storage in
-  let open IrminStorageClnt in
-  let (r,w) = rw in
-  let param = (user,r,w) in
-  build_strg_inst (module IrminsuleStorage) (loc, mbox_root, inbox_root, param) ()
-
-let get_storage user str_rw =
-  let open Primitives in
-  let loc = BasicLocation.create (Configuration.mailboxes user) in
-  match str_rw with 
-  | None -> unix_mbox_mailbox loc (Configuration.mailboxes user) (Configuration.inbox_root())
-  (* irmin inbox update needs work TBD *)
-  | Some rw -> irmin_mailbox user "/" 
-    (Configuration.irmin_mailboxes()) (Configuration.irmin_inbox_root()) rw 
-    
-
-(* check for inbox updates *)
-let rec inbox_monitor user str_rw logout_wait sec =
-  let open IrminSrvIpc in
-  (Clock.with_timeout 
-    (Time.Span.create ~sec ()) 
-    logout_wait) >>= function 
-      | `Result () -> close_irmin_server_ipc str_rw
-      | `Timeout ->
-        let (module SI) = get_storage user str_rw in
-           SI.MailboxStorage.update_index SI.this >>= (function
-              | `NotExists -> SI.MailboxStorage.rebuild_index SI.this
-              | `Ok -> return ()
-            ) >>= fun () -> inbox_monitor user str_rw logout_wait (Configuration.inbox_refresh())
-
-let start_monitors user ipc_ctx = 
-  let open IrminSrvIpc in
-  don't_wait_for (
-    get_irmin_server_ipc () >>= fun str_rw ->
-    inbox_monitor user str_rw (Condition.wait ipc_ctx.logout_ctx) 0 
-  ) 
-
-let stop_monitors logout =
-  Condition.broadcast logout ()
-*)
-
 (** parse the buffer, return ok (request) or error (msg) **)
 let get_request_context contexts buff =
   printf "get_request_context %s\n%!" buff; Out_channel.flush stdout;
@@ -113,11 +65,11 @@ let get_request_context contexts buff =
  * Any state
 **)
 let handle_id writer l =
-  write_resp writer (Resp_Untagged (formated_id(Configuration.id())));
+  write_resp writer (Resp_Untagged (formated_id(Configuration.id)));
   return_resp_ctx None (Resp_Ok (None, "ID completed")) None
 
 let handle_capability writer = 
-  write_resp writer (Resp_Untagged (formated_capability(Configuration.capability())));
+  write_resp writer (Resp_Untagged (formated_capability(Configuration.capability)));
   return_resp_ctx None (Resp_Ok (None, "CAPABILITY completed")) None
 
 let handle_logout ipc_ctx =

@@ -27,11 +27,12 @@ let try_close chan =
  
 let create_socket () =
   Printf.printf "imaplet_irmin_store: creating socket any %d\n%!" srv_config.irmin_port;
-  let sockaddr = Unix.ADDR_INET (Unix.inet_addr_any, srv_config.irmin_port) in
+  let sockaddr = Unix.ADDR_INET 
+    (Unix.inet_addr_of_string srv_config.irmin_addr, srv_config.irmin_port) in
   let socket = Lwt_unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Lwt_unix.setsockopt socket Unix.SO_REUSEADDR true;
   Lwt_unix.bind socket sockaddr;
-  Lwt_unix.listen socket IrminStorageConfig.backlog;
+  Lwt_unix.listen socket Configuration.irmin_backlog;
   socket
 
 let get_pos = function

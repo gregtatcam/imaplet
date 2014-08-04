@@ -30,11 +30,17 @@ type imapConfig = {
   port : int; (* server port, default 993 *)
   ssl : bool; (* ssl enabled, default true *)
   starttls : bool; (* starttls enabled, default true *)
+  cert_path : string; (* pam/key path, default datadir/imaplet *)
+  pem_name : string; (* pem file name, default server.pem *)
+  key_name : string; (* private key file name, default server.key *)
+  users_path : string; (* users file path, default datadir/imaplet *)
 }
 
 let srv_config = 
+  let open Batteries in
   let lines =
-  Core.Std.In_channel.read_lines "./imaplet.cf"
+    let en = BatFile.lines_of Install.config_path in
+    BatEnum.fold (fun acc e -> e :: acc) [] en
   in
   Printf.printf "##### loading configuration file #####\n%!";
   let config = {
@@ -54,6 +60,10 @@ let srv_config =
     port = 993;
     ssl = true;
     starttls = true;
+    cert_path = Install.cert_path;
+    pem_name = "server.pem";
+    key_name = "server.key";
+    users_path = Install.users_path;
   } in
   let rec proc lines acc =
     match lines with 
@@ -73,9 +83,9 @@ let srv_config =
       match n with 
       | "imap_name" -> {acc with imap_name = v }
       | "rebuild_irmin" -> {acc with rebuild_irmin = bval n v false}
-      | "inbox_path" -> {acc with inbox_path = n}
-      | "mail_path" -> {acc with mail_path = n}
-      | "irmin_path" -> {acc with irmin_path = n}
+      | "inbox_path" -> {acc with inbox_path = v}
+      | "mail_path" -> {acc with mail_path = v}
+      | "irmin_path" -> {acc with irmin_path = v}
       | "max_msg_size" -> {acc with max_msg_size = ival n v 10_000_000}
       | "imap_addr" -> {acc with imap_addr = v}
       | "imap_port" -> {acc with imap_port = ival n v 6000}
@@ -87,6 +97,10 @@ let srv_config =
       | "port" -> {acc with port = ival n v 993}
       | "ssl" -> {acc with ssl = bval n v true}
       | "starttls" -> {acc with starttls = bval n v true}
+      | "cert_path" -> {acc with cert_path = v};
+      | "pem_name" -> {acc with pem_name = v}
+      | "key_name" -> {acc with key_name = v}
+      | "users_path" -> {acc with users_path = v}
       | _ -> Printf.printf "unknown configuration %s\n%!" n; acc
     ) else 
       acc

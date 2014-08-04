@@ -41,8 +41,8 @@ type t = string * string * string option * selection option *
 (** validate directory and inbox TBD **)
 let create user str_rw =
   let mbox =
-    if (Configuration.get_store()) = `Irminsule then
-      Configuration.irmin_mailboxes ()
+    if (Configuration.get_store) = `Irminsule then
+      Configuration.irmin_mailboxes
     else
       Configuration.mailboxes user
   in
@@ -99,7 +99,7 @@ let mbox_item item reference =
 (** get mailbox path **)
 let get_mbox_path mbx name =
   let (i,m,_,_,_) = mbx in
-  (if Configuration.get_store() <> `Irminsule && match_regex ~case:false name "INBOX" = true then
+  (if Configuration.get_store <> `Irminsule && match_regex ~case:false name "INBOX" = true then
     i
   else
     concat_path m name)
@@ -111,8 +111,8 @@ let storage_factory_mbox mbx mailbox1 ?mailbox2 () =
     let (_,m,_,_,_) = mbx in
     let loc = BasicLocation.create file in
     let mloc = BasicLocation.create m in
-    let iloc = BasicLocation.create (Configuration.inbox_root()) in
-    (loc, mloc, iloc, Configuration.mbox_index_params())
+    let iloc = BasicLocation.create (Configuration.inbox_root) in
+    (loc, mloc, iloc, Configuration.mbox_index_params)
   in
   let tp1 = mk_arg mbx mailbox1 in
   let tp2 = if mailbox2 = None then None else Some (mk_arg mbx (Option.value_exn mailbox2)) in
@@ -125,7 +125,7 @@ let storage_factory_irmin mbx mailbox1 ?mailbox2 () =
     let (_,m,u,_,rw) = mbx in
     let loc = BasicLocation.create file in
     let mloc = BasicLocation.create m in
-    let iloc = BasicLocation.create (Configuration.irmin_inbox_root()) in
+    let iloc = BasicLocation.create (Configuration.irmin_inbox_root) in
     let (r,w) = Option.value_exn rw in
     let param = (Option.value_exn u,r,w) in
     (loc, mloc, iloc, param)
@@ -135,7 +135,7 @@ let storage_factory_irmin mbx mailbox1 ?mailbox2 () =
   build_strg_inst (module IrminsuleStorage) tp1 ?tp2 ()
 
 let storage_factory mbx mailbox1 ?mailbox2() =
-  match (Configuration.get_store()) with
+  match (Configuration.get_store) with
   | `Irminsule -> storage_factory_irmin mbx mailbox1 ?mailbox2 ()
   | _ -> storage_factory_mbox mbx mailbox1 ?mailbox2 ()
 

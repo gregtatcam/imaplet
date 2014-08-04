@@ -32,8 +32,8 @@ let marshal a =
 let init_irmin_storage () =
   let open IrminStorageCmd in
     Unix_syscalls.fork_exec
-    ~prog:(Configuration.irmin_srv_exec())
-    ~args:[Configuration.irmin_srv_exec()] ()
+    ~prog:(Configuration.irmin_srv_exec)
+    ~args:[Configuration.irmin_srv_exec] ()
     >>= fun pid -> 
     printf "launched irmin server pid %d\n%!" (Pid.to_int pid);
     try_with (fun () ->
@@ -55,7 +55,7 @@ let init_irmin_storage () =
 let unix_mbox_mailbox loc mbox_root inbox_root =
   let open Storage in
   build_strg_inst (module UnixMboxMailboxStorage) (loc, mbox_root, inbox_root,
-  Configuration.mbox_index_params()) ()
+  Configuration.mbox_index_params) ()
 
 let irmin_mailbox user loc mbox_root inbox_root rw =
   let open Storage in
@@ -137,7 +137,7 @@ let command =
           create_mailbox user str_rw (Configuration.inbox user) (storage "INBOX") >>= fun () ->
           let (module Mailbox) = get_storage user None
                     (Configuration.mailboxes user) (Configuration.mailboxes user)
-                    (Configuration.inbox_root()) in
+                    (Configuration.inbox_root) in
           Mailbox.MailboxStorage.list_store Mailbox.this 
           ~init:()
           ~f:(fun () item ->

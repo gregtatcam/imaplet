@@ -96,7 +96,7 @@ let parse_users buff user password =
 
 let parse_user_b64 b64 =
   try 
-   let buff = Base64.str_decode b64 in (** need to log this if it fails **)
+   let buff = Batteries.Base64.str_decode b64 in (** need to log this if it fails **)
    let _ = Str.search_forward (Str.regexp
    "^\\([^\\]+\\)\000\\([^\\]+\\)\000\\([^\\]+\\)$") buff 0 in
    let u1 = Str.matched_group 1 buff in
@@ -120,7 +120,7 @@ let rec read_users r user password =
       | `Eof -> return (false)
 
 (** have to make users configurable **)
-let authenticate_user ?(users="./users") user password =
+let authenticate_user ?(users=Install.users_path) user password =
   Reader.with_file users ~f:(fun r -> read_users r user password)
 
 (** read into the Buffer the size specified by {#} **)

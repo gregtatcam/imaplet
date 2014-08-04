@@ -20,7 +20,7 @@ irmin_addr 127.0.0.1
 irmin_port 6001
 
 # irminsule location
-irmin_path "/tmp/irmin/test"
+irmin_path /tmp/irmin/test
 
 # lmtp server address, always the loopback
 lmtp_addr 127.0.0.1
@@ -41,10 +41,22 @@ ssl true
 starttls true
 
 # inbox location, used for building irmin from mbox
-inbox_path "/var/mail"
+inbox_path /var/mail
 
 # mailboxes location, used for building irmin from mbox
-mail_path "/Users/@/mail"
+mail_path /Users/@/mail
 
 # rebuild irminsule on start up, not enabled yet
 #rebuild_irmin false
+
+# pem/key path default datadir/imaplet
+#cert_path ""
+
+# pem name
+pem_name server.pem
+
+# key name
+key_name server.key
+
+# users path default datadir/imaplet
+#users_path ""

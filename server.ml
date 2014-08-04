@@ -34,7 +34,7 @@ let listen_on port host =
 (* initialize storage *)
 let init_storage () =
   let open IrminSrvIpc in
-  match Configuration.get_store () with
+  match Configuration.get_store with
   | `Mbox | `Mailbox -> return ()
   | `Irminsule -> launch_irmin_server ()
 
@@ -48,7 +48,7 @@ let init_local_delivery () =
 let init_front_end () =
   Unix_syscalls.fork_exec
   ~prog:(Configuration.prx_srv_exec)
-  ~args:[Configuration.prx_srv_exec;"-p";"993";] () >>= fun _ -> return ()
+  ~args:[Configuration.prx_srv_exec] () >>= fun _ -> return ()
 
 (* initialize all things *)
 let init_all () =

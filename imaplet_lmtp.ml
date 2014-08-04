@@ -46,7 +46,7 @@ let init_unix_socket file =
  
 let create_srv_socket () =
   let socket = init_socket srv_config.lmtp_addr srv_config.lmtp_port in
-  Lwt_unix.listen socket LmtpConfig.lmtp_backlog;
+  Lwt_unix.listen socket Configuration.lmtp_backlog;
   socket
 
 (*

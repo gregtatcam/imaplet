@@ -26,14 +26,14 @@ open Async.Std
  * return either Authenticated or Notauthenticated state
 **)
 let init_connection w =
-  let resp = "* OK [CAPABILITY " ^ Configuration.capability() ^ "] Imaplet ready.\r\n" in
+  let resp = "* OK [CAPABILITY " ^ Configuration.capability ^ "] Imaplet ready.\r\n" in
   Writer.write w resp ~len:(String.length(resp));
   upon (Writer.flushed w) (fun() -> ());
   States.State_Notauthenticated
 
 let init_storage () =
   let open IrminSrvIpc in
-  match Configuration.get_store() with
+  match Configuration.get_store with
   | `Mbox | `Mailbox -> return None
   | `Irminsule -> get_irmin_server_ipc ()
 

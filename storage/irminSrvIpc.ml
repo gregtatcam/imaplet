@@ -22,8 +22,8 @@ let marshal a =
 
 let launch_irmin_server () =
   Unix_syscalls.fork_exec
-  ~prog:(Configuration.irmin_srv_exec())
-  ~args:[Configuration.irmin_srv_exec()] ()
+  ~prog:(Configuration.irmin_srv_exec)
+  ~args:[Configuration.irmin_srv_exec] ()
   >>= fun _ -> after (Core.Span.create ~sec:1 ())
 
 let get_irmin_server_ipc () =

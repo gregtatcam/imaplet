@@ -31,6 +31,10 @@ type imapConfig = {
   port : int; (* server port, default 993 *)
   ssl : bool; (* ssl enabled, default true *)
   starttls : bool; (* starttls enabled, default true *)
+  cert_path : string; (* pam/key path, default datadir/imaplet *)
+  pem_name : string; (* pem file name, default server.pem *)
+  key_name : string; (* private key file name, default server.key *)
+  users_path : string; (* users file path, default datadir/imaplet *)
 }
 
 val srv_config : imapConfig

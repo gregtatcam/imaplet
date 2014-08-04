@@ -16,6 +16,16 @@
 open Lwt
 open ServerConfig
 
+let print_ex ?(trace=false) msg ex =
+  let ex_str = Printexc.to_string ex in
+  let ex_trace =
+  if trace then
+    Printexc.get_backtrace()
+  else
+    ""
+  in
+  Printf.printf "%s %s %s %!" msg ex_str ex_trace
+
 let try_close chan =
   catch (fun () -> Lwt_io.close chan)
   (function _ -> return ())
@@ -27,8 +37,8 @@ let try_close_sock sock =
 
 let create_cert () = 
   X509_lwt.private_of_pems
-  ~cert:"./certificates/server.pem"
-  ~priv_key:"./certificates/server.key"
+  ~cert:(Install.cert_path ^ "/" ^ srv_config.pem_name)
+  ~priv_key:(Install.cert_path ^ "/" ^ srv_config.key_name)
 
 let init_socket addr port =
   Printf.printf "serverfe: creating socket %s %d\n%!" addr port;
@@ -82,9 +92,9 @@ let start_server () =
     ) (fun ex ->
       match ex with
       | End_of_file -> accept_conn srv_sock cert
-      | _ ->
-        Printf.printf "imaplet_proxy accept exception %s\n%!" 
-        (Core.Std.Exn.to_string ex); raise ex
+      | _ -> print_ex ~trace:true "imaplet_proxy accept exception" ex; 
+        (*raise ex*)
+        accept_conn srv_sock cert
     )
     >>= fun (channels, _, cl_sock) ->
     (* start new thread for connected client *)
@@ -115,8 +125,9 @@ let start_server () =
         ps () >>= fun () ->
         let buff = String.create 2048 in
         Lwt_io.read_into ic buff 0 2048 >>= fun i -> 
-        let starttls = Core.Std.String.substr_index buff 
-          ~pattern:"OK STARTTLS" <> None
+        let starttls = try
+          Str.search_forward (Str.regexp "OK STARTTLS") buff 0 >= 0 
+        with Not_found -> false
         in
         if i = 0 then 
           return `Eof
@@ -142,7 +153,6 @@ let start_server () =
        * works for common socket too
        *)
       let rec loop cl_sock is_ssl ps wk ic_up oc_up ic oc =
-        let open Core.Std in
         catch (fun() ->
           Lwt.pick [
            write_from_to_loop is_ssl uni_ret wk ic_up oc ;
@@ -156,16 +166,14 @@ let start_server () =
             init_ssl() >>= fun cert ->
             Printf.printf "imaplet_proxy got certificate\n%!";
             Tls_lwt.Unix.server_of_fd 
-            (Tls.Config.server ~certificate:cert ()) 
-            (Option.value_exn cl_sock) >>= fun srv ->
+            (Tls.Config.server_exn ~certificate:cert ()) 
+            (Batteries.Option.get cl_sock) >>= fun srv ->
             Printf.printf "imaplet_proxy created ssl server\n%!";
             try_close ic >> try_close oc >>
             let ic,oc = Tls_lwt.of_t srv in 
               loop cl_sock true uni_ret uni ic_up oc_up ic oc
         ) 
-        (fun ex ->
-          Printf.printf "imaplet_proxy io exception %s\n%!" 
-            (Exn.to_string ex); return ()
+        (fun ex -> print_ex "imaplet_proxy io exception" ex; return ()
         ) >>= fun () ->
           Printf.printf "imaplet_proxy closing client/imap connection\n%!" ;
           try_close ic >> try_close oc >> 
@@ -177,11 +185,19 @@ let start_server () =
     ); 
     process_client_accept srv_sock is_ssl
   in
+  catch(fun () ->
     process_client_accept srv_sock srv_config.ssl
+  ) 
+  (fun ex ->
+    match ex with
+    | End_of_file -> 
+        print_ex ~trace:true "imaplet_proxy process_client end_of_file" ex;
+        process_client_accept srv_sock srv_config.ssl
+    | _ -> print_ex ~trace:true "imaplet_proxy process_client exception" ex; raise ex
+  )
 
 let () =
+  let open Batteries in
   Lwt_main.run (catch(fun()->start_server ())
-  (fun ex -> 
-    Printf.printf "imaplet_proxy fatal exception %s %s\n%!" 
-      (Core.Std.Exn.to_string ex) (Core.Std.Exn.backtrace());
+  (fun ex -> print_ex ~trace:true "imaplet_proxy fatal exception" ex;
     return()))

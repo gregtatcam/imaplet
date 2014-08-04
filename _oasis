@@ -1,0 +1,63 @@
+OASISFormat: 0.4
+Name:        imaplet
+Version:     1.0.0
+Synopsis:    IMAP server
+Authors:     Gregory Tsipenyuk
+License:     GPL
+Plugins:     DevFiles (0.4)
+PreBuildCommand: ocaml inst.ml $bindir $datadir > install.ml
+
+Executable imaplet
+  Build		  : true
+  Install	  : true
+  Path		  : .
+  CompiledObject  : native
+  BuildTools	  : ocamlbuild
+  MainIs	  : imaplet.ml
+  BuildDepends	  : batteries,str,async,email_message,async_unix,async_kernel,sexplib,sexplib.syntax,threads
+  DataFiles	  : certificates/server.pem($datadir/imaplet),certificates/server.key($datadir/imaplet),imaplet.cf($datadir/imaplet),users($datadir/imaplet)
+
+Executable imaplet_irmin_store
+  Build		  : true
+  Install	  : true
+  Path		  : .
+  CompiledObject  : native
+  BuildTools	  : ocamlbuild
+  MainIs	  : imaplet_irmin_store.ml
+  BuildDepends	  : lwt,lwt.unix,lwt.syntax,irmin.backend,irmin.unix,sexplib.syntax,email_message,str,batteries,threads
+
+Executable imaplet_irmin_build
+  Build		  : true
+  Install	  : true
+  Path		  : .
+  CompiledObject  : native
+  BuildTools	  : ocamlbuild
+  MainIs	  : imaplet_irmin_build.ml
+  BuildDepends	  : batteries,async,email_message,async_unix,str,sexplib.syntax,threads
+
+Executable imaplet_irmin_read
+  Build		  : true
+  Install	  : true
+  Path		  : .
+  CompiledObject  : native
+  BuildTools	  : ocamlbuild
+  MainIs	  : imaplet_irmin_read.ml
+  BuildDepends	  : batteries,lwt,irmin.backend,irmin.unix,sexplib.syntax,str,email_message,threads
+
+Executable imaplet_lmtp
+  Build		  : true
+  Install	  : true
+  Path		  : .
+  CompiledObject  : native
+  BuildTools	  : ocamlbuild
+  MainIs	  : imaplet_lmtp.ml
+  BuildDepends	  : batteries,core,lwt,lwt.unix,lwt.syntax,str,threads
+
+Executable imaplet_proxy
+  Build		  : true
+  Install	  : true
+  Path		  : .
+  CompiledObject  : native
+  BuildTools	  : ocamlbuild
+  MainIs	  : imaplet_proxy.ml
+  BuildDepends	  : batteries,lwt,lwt.unix,lwt.syntax,tls.lwt,str,cstruct.unix,threads

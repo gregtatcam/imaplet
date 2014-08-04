@@ -14,16 +14,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 (** un-authenticated capabilities **)
-val capability : unit -> string
+val capability : string
 
 (** system id **)
-val id : unit -> string
-
-(** inbox refresh rate **)
-val inbox_refresh : unit -> int
+val id : string
 
 (** inbox root **)
-val inbox_root : unit -> string
+val inbox_root : string
 
 (** inbox folder **)
 val inbox : string -> string
@@ -37,18 +34,22 @@ val max_message_in_memory_size : int
 val get_mbox_flags : (string list*string list)
 
 (* mbox index header/record size *)
-val mbox_index_params : unit -> (int * int)
+val mbox_index_params : (int * int)
 
 (* get type of storage *)
-val get_store : unit -> [`Mbox|`Mailbox|`Irminsule] 
+val get_store : [`Mbox|`Mailbox|`Irminsule] 
 
-val irmin_srv_exec : unit -> string
+val irmin_srv_exec : string
 
-val irmin_inbox_root : unit -> string
+val irmin_inbox_root : string
 
-val irmin_mailboxes : unit -> string
+val irmin_mailboxes : string
+
+val irmin_backlog : int
 
 val lmtp_srv_exec : string
+
+val lmtp_backlog : int
 
 val prx_srv_exec : string
 

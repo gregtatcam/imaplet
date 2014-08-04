@@ -14,7 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 open Core.Std
-open Utils
 
 let revision = "IMAP4rev1"
 let literal = "LITERAL+"
@@ -27,26 +26,24 @@ let starttls = "STARTTLS"
 let auth = "AUTH=PLAIN"
 let login'disabled = "LOGINDISABLED"
 
-let capability () = let l = [revision;literal; sasl; login'ref; id; enable;
+let capability = let l = [revision;literal; sasl; login'ref; id; enable;
 idle;starttls; auth] in
   List.fold_left l ~init:"" ~f:(fun all cap -> if all = "" then cap else all ^
-  sp() ^ cap)
+  " " ^ cap)
 
 (* mbox index header/record size *)
-let mbox_index_params () = (2048,1024)
+let mbox_index_params = (2048,1024)
 
-let id () = "\"name\" \"Imaplet\""
+let id = "\"name\" \"Imaplet\""
 
 let max_message_in_memory_size = 0 (**10_240**)
 
-let inbox_refresh () = 10
-
-let inbox_root () = 
+let inbox_root = 
   let open ServerConfig in 
   srv_config.inbox_path
 
 let inbox name =
-  Filename.concat (inbox_root()) name
+  Filename.concat (inbox_root) name
 
 let mailboxes name = 
   let open ServerConfig in 
@@ -59,20 +56,24 @@ let get_mbox_flags =
   ["\\Answered"; "\\Flagged"; "\\Deleted"; "\\Seen"; "\\Draft"; "$NotJunk";
   "NotJunk"; "\\*"])
 
-let get_store () =
+let get_store =
   `Irminsule
 
 (* Irminsule *)
-let irmin_srv_exec () = "./imaplet_irmin_store.native"
+let irmin_srv_exec = Install.irmin_srv_exec
 
-let irmin_inbox_root () = "/"
+let irmin_inbox_root = "/"
 
-let irmin_mailboxes () = "/"
+let irmin_mailboxes = "/"
+
+let irmin_backlog = 10
 
 (* lmtp *)
-let lmtp_srv_exec = "./imaplet_lmtp.native"
+let lmtp_srv_exec = Install.lmtp_srv_exec
+
+let lmtp_backlog = 10
 
 (* imap proxy *)
-let prx_srv_exec = "./imaplet_proxy.native"
+let prx_srv_exec = Install.prx_srv_exec
 
-let srv_config_path = "./imaplet.cf"
+let srv_config_path = Install.config_path

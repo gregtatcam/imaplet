@@ -15,7 +15,6 @@
  *)
 open Core.Std
 open Async.Std
-open ExtLib
 open States
 open Utils
 

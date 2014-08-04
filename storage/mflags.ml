@@ -23,5 +23,5 @@ type mailboxFlags =
   | Flags_Seen
   | Flags_Keyword of string
   | Flags_Extention of string
-  | Flags_Template (* imaplet special for template message (from dovecot) *)
+  | Flags_Template 
   with sexp
