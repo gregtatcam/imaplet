@@ -144,7 +144,7 @@ let main () =
     | "help" -> Printf.printf "help\nselect mbox\nlist\nuser\nquit\n%!"; request user
     | "user" -> prompt "user? " >>= fun user -> request user
     | "select" -> 
-          let mailbox = arg 1 in
+          let mailbox = Str.replace_first (Str.regexp "+") " " (arg 1) in
           let mbox = IrminMailbox.create user mailbox in
           selected user mbox >>= fun () -> request user
     | "list" -> 

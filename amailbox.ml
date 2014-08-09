@@ -376,7 +376,7 @@ let append mbx (name:string) (reader:Reader.t) (writer:Writer.t) (flags:mailboxF
              use the pipe as intermediary to control the size of the data
            *)
           let pipe_read = Pipe.init (fun pipe_write ->
-            let rec read size =
+            let rec read first size =
               if size = 0 then (
                 Pipe.close pipe_write; return()
               ) else (
@@ -384,7 +384,39 @@ let append mbx (name:string) (reader:Reader.t) (writer:Writer.t) (flags:mailboxF
                 let buff_size = if size > 1024 then 1024 else size in
                 let buff = String.create buff_size in
                 Reader.really_read reader buff >>= function
-                 | `Ok -> Pipe.write pipe_write buff >>= fun () -> read (size - buff_size)
+                 | `Ok -> 
+                     let postmark first buff =
+                       if first then (
+                        if String.slice buff 0 5 = "From " then (
+                          printf "append ================ found postmark\n%!";
+                          return ()
+                        ) else (
+                          let date_time () =
+                            let open Async.Std.Unix in
+                            let time = Time.to_float (Time.now()) in
+                            let tm = Unix.gmtime time in
+                            Printf.sprintf "%s %s %d %02d:%02d:%02d %d"
+                            (day_of_week tm.tm_wday) (int_to_month
+                            tm.tm_mon) tm.tm_mday tm.tm_hour tm.tm_min
+                            tm.tm_sec (1900+tm.tm_year)
+                          in
+                          let from buff =
+                            if match_regex buff "^From: \\([^<]+\\)<\\([^>]+\\)" then
+                              Str.matched_group 2 buff
+                            else
+                              "From dovecot@localhost.local"
+                          in
+                          let post = ("From " ^ (from buff) ^ " " ^ (date_time ()) ^ "\r\n") in
+                          printf "append =============== writing postmark %s\n%!" post;
+                          (* Email_message fails if the postmark is not present *)
+                          Pipe.write pipe_write post
+                        )
+                       ) else (
+                         return ()
+                       ) 
+                     in
+                     postmark first buff >>= fun () ->
+                     Pipe.write pipe_write buff >>= fun () -> read false (size - buff_size)
                  | `Eof i -> 
                     if i = 0 then
                       return ()
@@ -394,8 +426,7 @@ let append mbx (name:string) (reader:Reader.t) (writer:Writer.t) (flags:mailboxF
                     )
               )
             in
-            Pipe.write pipe_write "From dovecot@localhost.local  Thu Mar 20 17:23:22 2014\r\n" >>= fun () ->
-            read size
+            read true size
           ) in 
           let open Email_message in
           Reader.of_pipe (Info.of_string "controlled network reader") pipe_read >>= fun c_reader ->
@@ -404,6 +435,7 @@ let append mbx (name:string) (reader:Reader.t) (writer:Writer.t) (flags:mailboxF
           Pipe.fold mailbox 
           ~init:()
           ~f:(fun () message -> 
+            Printf.printf "==================== processing email message\n%!";
             let (module Accessor : StorageAccessor_inst) = accs in
             (* need to add flags, TBD *)
             let flags = Option.value flags ~default:[] in

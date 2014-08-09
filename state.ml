@@ -36,7 +36,7 @@ let return_resp_ctx resp_state_ctx resp_ctx resp_mbx_ctx =
 
 (** parse the buffer, return ok (request) or error (msg) **)
 let get_request_context contexts buff =
-  printf "get_request_context %s\n%!" buff; Out_channel.flush stdout;
+  printf "get_request_context -%s-\n%!" buff; Out_channel.flush stdout;
   first := true;
   try
     let lexbuff = Lexing.from_string buff in
@@ -53,9 +53,9 @@ let get_request_context contexts buff =
     Ok ({request={command with tag = t}})
   with
   | SyntaxError e -> printf "get_request_context error %s\n%!" e; Error (e)
-  | Parser.Error -> printf "get_request_context bad command\n%!"; Error ("bad command")
-  | Interpreter.InvalidSequence -> Error ("bad command")
-  | Regex.InvalidDate -> Error("bad command")
+  | Parser.Error -> printf "get_request_context bad command\n%!"; Error ("bad command, parser")
+  | Interpreter.InvalidSequence -> Error ("bad command, invalid sequence")
+  | Regex.InvalidDate -> Error("bad command, invalid date")
   | e -> Error(Exn.backtrace())
 
 (** handle all commands
