@@ -40,11 +40,11 @@ let init_storage () =
 (**
  * accepted client's connection
 **)
-let client_connect r w =
+let client_connect id connections r w =
   init_storage () >>= fun str_ipc ->
   let open Contexts in
   let state = init_connection w in
   let contexts = 
     ({req_ctx = (Contextlist.create()); state_ctx = state; mbx_ctx = Amailbox.empty() }) in
-  let ipc_ctx = { logout_ctx = Condition.create(); net_r = r; net_w = w ; str_rw = str_ipc} in
+  let ipc_ctx = { connid = id; connections; logout_ctx = Condition.create(); net_r = r; net_w = w ; str_rw = str_ipc} in
   State.handle_client_requests contexts ipc_ctx

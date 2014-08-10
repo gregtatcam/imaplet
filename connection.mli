@@ -15,4 +15,4 @@
  *)
 open Async.Std
 
-val client_connect : Reader.t -> Writer.t -> unit Deferred.t
+val client_connect : Int64.t -> (Int64.t*string*Writer.t) list ref -> Reader.t -> Writer.t -> unit Deferred.t

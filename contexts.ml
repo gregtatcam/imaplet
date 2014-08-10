@@ -44,6 +44,8 @@ type ('b) resp_context = {
 }
 
 type ipc_context = {
+  connid : Int64.t;
+  connections: (Int64.t*string*Writer.t) list ref;
   logout_ctx : unit Async_condition.t;
   net_r : Reader.t;
   net_w : Writer.t;

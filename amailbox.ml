@@ -37,6 +37,10 @@ type t = string * string * string option * selection option *
 
 (** locks TBD !!!! **)
 
+let user mbx =
+  let (_,_,u,_,_) = mbx in
+  u
+
 (** inbox folder, mailboxes folder, user account, selected -> type **)
 (** validate directory and inbox TBD **)
 let create user str_rw =

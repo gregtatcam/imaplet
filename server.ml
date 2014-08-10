@@ -56,6 +56,9 @@ let init_all () =
   init_local_delivery () >>= fun () ->
   init_front_end ()
 
+let connections = ref []
+let connid = ref Int64.zero
+
 (**
  * start accepting connections
 **)
@@ -64,4 +67,16 @@ let create ~port ~host =
   Tcp.Server.create
   ~on_handler_error:`Raise
   (listen_on port host)
-  (fun _addr r w -> Connection.client_connect r w) >>= fun _ -> never()
+  (fun _addr r w -> 
+    connid := Int64.(+) !connid Int64.one;
+    let id = !connid in
+    Connection.client_connect id connections r w >>= fun _ -> 
+    connections := List.fold !connections ~init:[] ~f:(fun acc i ->
+      let (cid,_,_) = i in
+      if Int64.equal cid id then
+        acc
+      else
+        i :: acc
+    );
+    return ()
+  ) >>= fun _ -> never()

@@ -88,3 +88,7 @@ val copy : t -> string -> States.sequence -> bool ->
 [`NotExists|`NotSelectable|`Error of string|`Ok ] Deferred.t 
 
 val expunge : t -> (string->unit) -> [`Error of string|`Ok] Deferred.t 
+
+val user : t -> string option
+
+val selected_mbox : t -> string option

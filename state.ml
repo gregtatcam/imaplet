@@ -27,6 +27,7 @@ open Regex
 open StorageMeta
 
 exception SystemError of string
+exception ExpectedDone
 
 let make_resp_ctx resp_state_ctx resp_ctx resp_mbx_ctx =
   {resp_state_ctx; resp_ctx; resp_mbx_ctx};;
@@ -42,20 +43,26 @@ let get_request_context contexts buff =
     let lexbuff = Lexing.from_string buff in
     let command = (Parser.request Lex.read lexbuff) in
     printf "get_request_context, returned from parser\n%!"; Out_channel.flush stdout;
-    let t =
-    (
-      if is_done command then
-        let idle = find_idle contexts.req_ctx in
-            (match idle with Some idle -> idle.request.tag | None -> "")
-       else
+    let idle = find_idle contexts.req_ctx in
+    let isdone = is_done command in
+    if idle <> None && isdone = false then
+      raise ExpectedDone
+    else (
+      let t =
+      (
+        if isdone then
+          (match idle with Some idle -> idle.request.tag | None -> "")
+        else
           command.tag
-    ) in
-    Ok ({request={command with tag = t}})
+      ) in
+      Ok ({request={command with tag = t}})
+    )
   with
   | SyntaxError e -> printf "get_request_context error %s\n%!" e; Error (e)
   | Parser.Error -> printf "get_request_context bad command\n%!"; Error ("bad command, parser")
   | Interpreter.InvalidSequence -> Error ("bad command, invalid sequence")
   | Regex.InvalidDate -> Error("bad command, invalid date")
+  | ExpectedDone -> Error("Expected DONE")
   | e -> Error(Exn.backtrace())
 
 (** handle all commands
@@ -83,10 +90,23 @@ let handle_noop () =
 (** TBD, needs work, server should send updates while idle is active (terminated
  * by clien'ts done)
 **)
-let handle_idle writer =
+let handle_idle contexts ipc_ctx =
+  (match Amailbox.user contexts.mbx_ctx with
+  | Some user -> 
+    Printf.printf "handle_idle ======== %s %s\n%!" (Int64.to_string ipc_ctx.connid) user;
+    ipc_ctx.connections := (ipc_ctx.connid,user,ipc_ctx.net_w) :: ipc_ctx.!connections
+  | None -> ());
   return_resp_ctx None (Resp_Any ("+ idling")) None
 
-let handle_done ipc_ctx =
+let handle_done contexts ipc_ctx =
+  ipc_ctx.connections := List.fold ipc_ctx.!connections ~init:[] ~f:(fun acc i ->
+    let (cid,u,_) = i in
+    if Int64.equal ipc_ctx.connid cid then (
+      Printf.printf "handle_done removing ======== %s %s\n%!" (Int64.to_string cid) u;
+      acc
+    ) else
+      i :: acc
+  );
   return_resp_ctx None (Resp_Ok (None, "IDLE")) None
 
 (**
@@ -225,8 +245,48 @@ let handle_status writer mailbox optlist contexts =
       return_resp_ctx None (Resp_Ok(None, "STATUS completed")) None
     )
 
+(* send unsolicited response to idle clients *)
+let idle_clients contexts ipc_ctx =
+  let open Amailbox in
+  let get_status () =
+   match selected_mbox contexts.mbx_ctx with
+   | Some mailbox ->
+    (examine contexts.mbx_ctx mailbox >>= function
+    |`Ok(mbx,header) -> return (Some header)
+    | _ -> return None
+    )
+   | None -> return None
+  in
+  match user contexts.mbx_ctx with
+  |Some user ->
+    let idle = List.fold ipc_ctx.!connections ~init:[] ~f:(fun acc i ->
+      let (_,u,_) = i in
+      if u = user then 
+        i :: acc
+      else
+        acc
+    ) in
+    if List.length idle > 0 then (
+      get_status () >>= function
+      | Some status ->
+        List.iter idle ~f:(fun i ->
+         let (id,u,w) = i in
+         if u = user then (
+           Printf.printf "=========== idle_clients %s %s\n%!" (Int64.to_string id) u;
+           write_resp_untagged w ("EXISTS " ^ (string_of_int status.count));
+           write_resp_untagged w ("RECENT " ^ (string_of_int status.recent))
+         ) else (
+           ()
+         )
+        ); return ()
+      | None -> return ()
+    ) else (
+      return ()
+    )
+  |None -> return ()
+
 (** handle append **)
-let handle_append reader writer mailbox flags date literal contexts =
+let handle_append ipc_ctx mailbox flags date literal contexts =
   printf "handle_append\n%!";
   let open Amailbox in
   (** is the size sane? **)
@@ -237,12 +297,14 @@ let handle_append reader writer mailbox flags date literal contexts =
   if size > srv_config.max_msg_size then
     return_resp_ctx None (Resp_No(None,"Max message size")) None
   else (
-    append contexts.mbx_ctx mailbox reader writer flags date literal >>= function
+    append contexts.mbx_ctx mailbox ipc_ctx.net_r ipc_ctx.net_w flags date literal >>= function
       | `NotExists -> return_resp_ctx None (Resp_No(Some RespCode_Trycreate,"")) None
       | `NotSelectable -> return_resp_ctx None (Resp_No(Some RespCode_Trycreate,"Noselect")) None
       | `Error e -> return_resp_ctx None (Resp_No(None,e)) None
       | `Eof i -> return_resp_ctx (Some State_Logout) (Resp_No(None, "Truncated Message")) None
-      | `Ok -> return_resp_ctx None (Resp_Ok(None, "APPEND completed")) None
+      | `Ok -> 
+        idle_clients contexts ipc_ctx >>= fun () ->
+        return_resp_ctx None (Resp_Ok(None, "APPEND completed")) None
   )
 
 (**
@@ -292,13 +354,15 @@ let handle_fetch writer sequence fetchattr buid context =
   | `Error e -> return_resp_ctx None (Resp_No(None,e)) None
   | `Ok -> return_resp_ctx None (Resp_Ok(None, "FETCH completed")) None
 
-let handle_store writer sequence flagsatt flagsval buid contexts =
+let handle_store ipc_ctx sequence flagsatt flagsval buid contexts =
   printf "handle_store %d %d\n" (List.length sequence) (List.length flagsval);
-  Amailbox.store contexts.mbx_ctx (write_resp_untagged writer) sequence flagsatt flagsval buid >>= function
+  Amailbox.store contexts.mbx_ctx (write_resp_untagged ipc_ctx.net_w) sequence flagsatt flagsval buid >>= function
   | `NotExists -> return_resp_ctx None (Resp_No(None,"Mailbox doesn't exist")) None
   | `NotSelectable ->  return_resp_ctx None (Resp_No(None,"Mailbox is not selectable")) None
   | `Error e -> return_resp_ctx None (Resp_No(None,e)) None
-  | `Ok -> return_resp_ctx None (Resp_Ok(None, "STORE completed")) None
+  | `Ok ->
+    idle_clients contexts ipc_ctx >>= fun () ->
+    return_resp_ctx None (Resp_Ok(None, "STORE completed")) None
 
 let handle_copy writer sequence mailbox buid contexts =
   printf "handle_copy %d %s\n" (List.length sequence) mailbox;
@@ -340,7 +404,7 @@ let handle_notauthenticated request contexts ipc_ctx context = match request wit
   | Cmd_Lappend (user,mailbox,literal) -> 
       let mbx = Amailbox.create user ipc_ctx.str_rw in
       let contexts = { contexts with mbx_ctx = mbx } in
-      handle_append ipc_ctx.net_r ipc_ctx.net_w mailbox None None literal contexts
+      handle_append ipc_ctx mailbox None None literal contexts
 
 let handle_authenticated request contexts ipc_ctx context = match request with
   | Cmd_Select mailbox -> handle_select ipc_ctx.net_w mailbox contexts true
@@ -353,10 +417,9 @@ let handle_authenticated request contexts ipc_ctx context = match request with
   | Cmd_List (reference, mailbox) -> handle_list ipc_ctx.net_w reference mailbox contexts false
   | Cmd_Lsub (reference, mailbox) -> handle_list ipc_ctx.net_w reference mailbox contexts true
   | Cmd_Status (mailbox,optlist) -> handle_status ipc_ctx.net_w mailbox optlist contexts
-  | Cmd_Append (mailbox,flags,date,size) -> 
-      handle_append ipc_ctx.net_r ipc_ctx.net_w mailbox flags date size contexts
-  | Cmd_Idle -> handle_idle ipc_ctx.net_w
-  | Cmd_Done -> handle_done ipc_ctx
+  | Cmd_Append (mailbox,flags,date,size) -> handle_append ipc_ctx mailbox flags date size contexts
+  | Cmd_Idle -> handle_idle contexts ipc_ctx
+  | Cmd_Done -> handle_done contexts ipc_ctx
 
 let handle_selected request contexts ipc_ctx context = match request with
   | Cmd_Check -> return_resp_ctx None (Resp_Ok(None, "CHECK completed")) None
@@ -365,7 +428,7 @@ let handle_selected request contexts ipc_ctx context = match request with
   | Cmd_Search (charset,search, buid) -> handle_search ipc_ctx.net_w charset search buid contexts
   | Cmd_Fetch (sequence,fetchattr, buid) -> handle_fetch ipc_ctx.net_w sequence fetchattr buid contexts
   | Cmd_Store (sequence,flagsatt,flagsval, buid) -> 
-      handle_store ipc_ctx.net_w sequence flagsatt flagsval buid contexts
+      handle_store ipc_ctx sequence flagsatt flagsval buid contexts
   | Cmd_Copy (sequence,mailbox, buid) -> handle_copy ipc_ctx.net_w sequence mailbox buid contexts
 
 let handle_commands contexts ipc_ctx context = 
@@ -407,9 +470,10 @@ let pr_state contexts = match contexts.state_ctx with
 
 let update_contexts contexts context response =
   printf "update_contexts %d\n%!" (length contexts.req_ctx);
-  let _ = pop contexts.req_ctx in 
   match context with 
-  |Ok (ctx) -> pushs contexts.req_ctx ctx
+  |Ok (ctx) -> 
+    let _ = pop contexts.req_ctx in 
+    pushs contexts.req_ctx ctx
   |Error (e) -> contexts.req_ctx
 
 
@@ -460,6 +524,11 @@ let rec read_network reader writer buffer =
         )
 
 let rec handle_client_requests contexts ipc_ctx =
+  List.iter ipc_ctx.!connections ~f:(fun i ->
+    let (id,name,_) = i in
+    Printf.printf "************ handle_client_requests %s %s\n%!"
+    (Int64.to_string id) name
+  );
   let open IrminSrvIpc in
   pr_state contexts;
   let buffer = Buffer.create 0 in
